@@ -123,16 +123,35 @@ ETL 프로세스는 백엔드 가상환경이 활성화된 상태에서 별도 P
 
 ---
 
-## 6. MCP 서버 로컬 테스트 (구현 후)
+## 6. MCP 서버 로컬 테스트
 
-MCP 서버는 웹 브라우저를 거치지 않는 AI 에이전트용 읽기/쓰기 UX입니다. T-010 구현 후에는 백엔드와 같은 `.env`를 사용하되, 쓰기 도구 활성화 여부를 명시적으로 확인합니다.
+MCP 서버는 웹 브라우저를 거치지 않는 AI 에이전트용 읽기/쓰기 UX입니다. 백엔드와 같은 SQLite + SpatiaLite 데이터베이스와 도메인 서비스를 공유하며, 장시간 작업은 직접 실행하지 않고 `crawl_runs.pending` 작업으로 생성합니다.
 
 ```powershell
 MCP_WRITE_ENABLED=true
 MCP_TRANSPORT=stdio
 ```
 
-구현 후 실행 명령은 `mcp/` 디렉토리의 README 또는 스크립트에 맞춰 이 문서에 추가합니다. 모든 쓰기 도구는 감사 로그를 남겨야 하며, Windows 로컬 테스트에서는 실제 API 키가 로그에 출력되지 않는지 함께 확인합니다.
+로컬 Python 가상환경에서 MCP 의존성을 함께 설치합니다.
+
+```powershell
+cd backend
+.\.venv\Scripts\activate
+pip install -r ..\mcp\requirements.txt
+cd ..
+python mcp\server.py
+```
+
+실제 구현 패키지는 외부 MCP SDK 패키지 이름과 충돌하지 않도록 `tripmate_mcp`에 둡니다. `mcp\server.py`는 Docker Compose의 기존 실행 명령을 보존하는 래퍼입니다.
+
+등록 도구는 다음과 같습니다.
+
+| 구분 | 도구 |
+| --- | --- |
+| 읽기 | `get_harvest_status`, `search_existing_places`, `get_place_detail` |
+| 쓰기 | `harvest_travel_destinations`, `correct_place`, `merge_places`, `trigger_deep_research`, `review_unmatched_place`, `resolve_place_candidate` |
+
+모든 쓰기 도구는 필수 `idempotency_key`를 받습니다. 같은 멱등 키로 재호출하면 새 변경을 만들지 않고 `audit_logs`에 저장된 이전 결과를 반환합니다. Windows 로컬 테스트에서는 쓰기 도구 호출 후 `audit_logs.actor_type = 'mcp'` 행이 기록되는지, 실제 API 키가 로그에 출력되지 않는지 함께 확인합니다.
 
 ---
 

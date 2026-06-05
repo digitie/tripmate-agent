@@ -43,3 +43,35 @@ async def list_recent(session: AsyncSession, *, limit: int = 50) -> list[AuditLo
     stmt = select(AuditLog).order_by(AuditLog.id.desc()).limit(limit)
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def find_by_idempotency_key(
+    session: AsyncSession,
+    *,
+    actor_type: str,
+    action: str,
+    idempotency_key: str,
+    limit: int = 200,
+) -> AuditLog | None:
+    """멱등 키가 같은 최근 감사 로그를 찾는다.
+
+    `audit_logs.payload_json`은 SQLite 호환성을 위해 Text로 저장한다. JSON 함수
+    의존을 피하고 최근 동일 action 로그만 좁혀 파싱한다.
+    """
+    stmt = (
+        select(AuditLog)
+        .where(AuditLog.actor_type == actor_type, AuditLog.action == action)
+        .order_by(AuditLog.id.desc())
+        .limit(limit)
+    )
+    result = await session.execute(stmt)
+    for log in result.scalars().all():
+        if not log.payload_json:
+            continue
+        try:
+            payload = json.loads(log.payload_json)
+        except json.JSONDecodeError:
+            continue
+        if payload.get("idempotency_key") == idempotency_key:
+            return log
+    return None
