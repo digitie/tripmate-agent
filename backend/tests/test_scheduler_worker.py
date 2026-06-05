@@ -1,0 +1,156 @@
+"""APScheduler 단일 실행자 worker 테스트."""
+
+from __future__ import annotations
+
+from datetime import timedelta
+
+import pytest
+
+from app.models import RunState, utcnow
+from app.services import crawl_run_service
+from scheduler import worker
+
+
+async def _fresh_run(session_factory, run_id):
+    async with session_factory() as session:
+        return await crawl_run_service.get_run(session, run_id)
+
+
+async def _ok_handler(session, run):
+    assert run.state == RunState.RUNNING
+    return {"handled_run_id": run.id, "target_id": run.target_id}
+
+
+async def _boom_handler(session, run):
+    raise RuntimeError("handler boom")
+
+
+async def test_run_once_claims_executes_and_marks_done(session, session_factory):
+    run = await crawl_run_service.create_run(
+        session,
+        job_type="harvest",
+        source="web",
+        target_type="keyword",
+        target_id="제주도 맛집",
+        payload={"query": "제주도 맛집", "max_videos": 5},
+    )
+
+    executed_id = await worker.run_once(
+        session_factory,
+        handlers={"harvest": _ok_handler},
+        heartbeat_interval_seconds=999,
+    )
+
+    assert executed_id == run.id
+    refreshed = await _fresh_run(session_factory, run.id)
+    assert refreshed.state == RunState.DONE
+    assert refreshed.progress == 1.0
+    assert refreshed.started_at is not None
+    assert refreshed.heartbeat_at is not None
+    assert refreshed.finished_at is not None
+    assert '"handled_run_id"' in refreshed.result_json
+
+
+async def test_run_once_returns_none_when_no_pending(session_factory):
+    assert await worker.run_once(session_factory) is None
+
+
+async def test_run_once_marks_failed_when_handler_raises(session, session_factory):
+    run = await crawl_run_service.create_run(
+        session, job_type="harvest", source="web", target_type="keyword", target_id="부산"
+    )
+
+    executed_id = await worker.run_once(
+        session_factory,
+        handlers={"harvest": _boom_handler},
+        heartbeat_interval_seconds=999,
+    )
+
+    assert executed_id == run.id
+    refreshed = await _fresh_run(session_factory, run.id)
+    assert refreshed.state == RunState.FAILED
+    assert "handler boom" in refreshed.last_error
+
+
+async def test_run_once_marks_failed_for_unknown_job_type(session, session_factory):
+    run = await crawl_run_service.create_run(session, job_type="unknown", source="web")
+
+    executed_id = await worker.run_once(
+        session_factory,
+        handlers={"harvest": _ok_handler},
+        heartbeat_interval_seconds=999,
+    )
+
+    assert executed_id == run.id
+    refreshed = await _fresh_run(session_factory, run.id)
+    assert refreshed.state == RunState.FAILED
+    assert "지원하지 않는 job_type" in refreshed.last_error
+
+
+async def test_run_once_requeues_stale_before_claim(session, session_factory):
+    run = await crawl_run_service.create_run(
+        session, job_type="harvest", source="web", target_type="keyword", target_id="서울"
+    )
+    await crawl_run_service.claim_next_pending(session)
+    running = await crawl_run_service.get_run(session, run.id)
+    running.heartbeat_at = utcnow() - timedelta(seconds=600)
+    await session.commit()
+
+    executed_id = await worker.run_once(
+        session_factory,
+        handlers={"harvest": _ok_handler},
+        stale_threshold_seconds=1,
+        max_retries=3,
+        heartbeat_interval_seconds=999,
+    )
+
+    assert executed_id == run.id
+    refreshed = await _fresh_run(session_factory, run.id)
+    assert refreshed.state == RunState.DONE
+    assert refreshed.retry_count == 1
+
+
+async def test_run_once_isolates_stale_when_retries_exhausted(session, session_factory):
+    run = await crawl_run_service.create_run(session, job_type="harvest", source="web")
+    await crawl_run_service.claim_next_pending(session)
+    running = await crawl_run_service.get_run(session, run.id)
+    running.retry_count = 3
+    running.heartbeat_at = utcnow() - timedelta(seconds=600)
+    await session.commit()
+
+    executed_id = await worker.run_once(
+        session_factory,
+        handlers={"harvest": _ok_handler},
+        stale_threshold_seconds=1,
+        max_retries=3,
+        heartbeat_interval_seconds=999,
+    )
+
+    assert executed_id is None
+    refreshed = await _fresh_run(session_factory, run.id)
+    assert refreshed.state == RunState.FAILED
+    assert "max retries" in refreshed.last_error
+
+
+async def test_harvest_handler_rejects_non_keyword_target(session):
+    run = await crawl_run_service.create_run(
+        session,
+        job_type="harvest",
+        source="web",
+        target_type="channel",
+        target_id="UC123",
+        payload={"channel_id": "UC123"},
+    )
+    claimed = await crawl_run_service.claim_next_pending(session)
+
+    with pytest.raises(ValueError, match="target_type"):
+        await worker.harvest_handler(session, claimed)
+
+
+async def test_load_payload_rejects_invalid_json(session):
+    run = await crawl_run_service.create_run(session, job_type="harvest", source="web")
+    run.payload_json = "["
+    await session.commit()
+
+    with pytest.raises(ValueError, match="payload_json"):
+        worker.load_payload(run)

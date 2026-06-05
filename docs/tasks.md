@@ -6,18 +6,18 @@
 
 ## 진행 중
 
-- 현재 진행 중인 구현 작업 없음. 다음 착수 대상은 **T-010**이다.
+- 현재 진행 중인 구현 작업 없음. 다음 착수 대상은 **T-019**이다.
 
 ---
 
 ## 대기 (우선순위 순)
 
-- **T-010**: APScheduler 단일 실행자 구현
-  - `scheduler` 실행자가 `crawl_runs.pending` 작업을 claim
-  - REST, MCP, 정기 크롤이 같은 작업 테이블을 공유
-  - heartbeat, progress, retry_count, last_error 갱신
-  - stale 작업 재투입 및 최대 재시도 초과 격리
-  - Celery, Redis, RabbitMQ, PostgreSQL Advisory Lock은 초기 범위에서 제외
+- **T-019**: 채널·재생목록 harvest 오케스트레이션 보강
+  - `HarvestRequest.channel_id`와 `playlist_id`를 scheduler 기본 `harvest` handler에서 실패시키지 않고 처리
+  - `YouTubeClient.channels_list`로 업로드 재생목록을 찾고 `playlistItems.list`로 영상 ID 수집
+  - 직접 `playlist_id` 입력 시 `playlistItems.list` 기반 수집 실행
+  - 수집 결과는 기존 `videos.list` 상세 조회, ranking, `ingest_service` 멱등 적재 경로를 재사용
+  - keyword/channel/playlist 수집 결과의 quota_used와 target_type별 요약을 `crawl_runs.result_json`에 기록
 
 - **T-011**: MCP 서버 읽기/쓰기 UX 구현
   - `harvest_travel_destinations` 작업 생성 도구
@@ -63,6 +63,7 @@
 
 ## 완료
 
+- [x] **T-010**: APScheduler 단일 실행자 구현 — `scheduler.worker`: `run_once`가 stale running 작업 재투입/격리 후 FIFO pending 작업을 claim하고 handler를 실행, `execute_run`이 heartbeat/progress/done/failed 상태 전이를 일원화, unknown job과 handler 예외를 failed로 격리, 기본 `harvest` handler를 keyword `pipeline.run_harvest`에 연결. `worker_loop`는 APScheduler interval job(`max_instances=1`, `coalesce=True`)으로 `run_once` 반복 실행. scheduler poll/heartbeat/stale/max retry 환경 변수 추가. channel/playlist harvest 오케스트레이션 갭은 T-019로 분리. pytest 90건 통과. (2026-06-05)
 - [x] **T-009**: 대표 프레임 추출 구현 — `frame_extraction`: POI 시작 타임스탬프 파싱(`HH:MM:SS`/`MM:SS`/초)과 5~10초 오프셋 적용, `yt-dlp` 지연 import 기반 직접 스트림 URL 선택, FFmpeg Input Seeking(`-ss`를 `-i` 앞에 배치) JPEG 추출, RustFS `tripmate-frames` 저장 및 `media_assets` 기록, `video_place_mappings.frame_asset_id` 연결, 원본 동영상/오디오 bytes를 `tripmate-raw-videos`에 무기한 보존하는 helper 구현. pytest 82건 통과. (2026-06-05)
 - [x] **T-008**: 지오코딩·역지오코딩 구현 — `geocoding`: Kakao Local 1차/Naver 보조 검증/VWorld 역지오코딩 어댑터(httpx 주입), `pyproj always_xy` 좌표 정규화(미설치 graceful), 429 지수 백오프+지터·Semaphore 동시성 상한, `evaluate_geocode`(단일 매칭/Naver 디스앰비규에이션/후보 과다·실패 시 `needs_review`). `geocode_service`: 매칭 시 좌표 근접 중복 재사용 또는 신규 `travel_places` 생성·VWorld 주소 보강, 실패·모호는 needs_review 유지(자동 확정 금지). `kraddr-geo` 미연계. pytest 72건 통과. (2026-06-05)
 - [x] **T-007**: 자막·전사·Gemini POI 추출 구현 — `transcript`(youtube-transcript-api→yt-dlp→faster-whisper provider 체인, 지연 import·executor 격리), `poi_extraction`(Gemini JSON Schema·파싱 실패 재시도, 주입형 llm), `media_store`(RustFS 저장 추상화 + `media_assets` 기록, 무기한 보존), `summarize_service`(자막 RustFS 저장→POI 추출→설명 보정본 저장·원문 보존→`needs_review` 후보 생성). pytest 60건 통과. (2026-06-05)

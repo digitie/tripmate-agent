@@ -144,9 +144,13 @@ MCP_TRANSPORT=stdio
 SCHEDULER_ENABLED=true
 CRAWL_MAX_CONCURRENT_VIDEOS=4
 HTTP_MAX_CONCURRENT_REQUESTS=8
+SCHEDULER_POLL_INTERVAL_SECONDS=5
+SCHEDULER_HEARTBEAT_INTERVAL_SECONDS=30
+SCHEDULER_STALE_THRESHOLD_SECONDS=300
+SCHEDULER_MAX_RETRIES=3
 ```
 
-검증 시 API/MCP가 직접 장시간 작업을 실행하지 않고 `job_id`만 반환하는지 확인합니다.
+검증 시 API/MCP가 직접 장시간 작업을 실행하지 않고 `job_id`만 반환하는지 확인합니다. scheduler는 APScheduler interval job으로 `crawl_runs.pending` 작업을 claim하며, handler 예외나 지원하지 않는 job type은 `failed` 상태와 `last_error`로 남겨야 합니다.
 
 ---
 
