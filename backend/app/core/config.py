@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     CRAWL_DEFAULT_INTERVAL_DAYS: int = 7
     CRAWL_MAX_CONCURRENT_VIDEOS: int = 4
     HTTP_MAX_CONCURRENT_REQUESTS: int = 8
+    SCHEDULER_POLL_INTERVAL_SECONDS: int = 5
+    SCHEDULER_HEARTBEAT_INTERVAL_SECONDS: int = 30
+    SCHEDULER_STALE_THRESHOLD_SECONDS: int = 300
+    SCHEDULER_MAX_RETRIES: int = 3
 
     @property
     def transcript_provider_order(self) -> list[str]:
