@@ -19,11 +19,12 @@ scheduler 단일 실행자와 서비스 계층이 import해 사용한다(ADR-13)
     - geocoding         : Kakao/Naver/VWorld 어댑터, 좌표 정규화, 429 백오프, 평가
     - geocode_service   : 후보 적용(중복 재사용·주소 보강·needs_review 처리)
 
-구현 대상(T-009 이후):
-    - 대표 프레임 추출
+구현 완료(T-009 대표 프레임):
+    - frame_extraction  : yt-dlp 스트림 URL 확보, FFmpeg Input Seeking, RustFS 저장
 """
 
 from app.etl import (
+    frame_extraction,
     geocode_service,
     geocoding,
     ingest_service,
@@ -49,4 +50,5 @@ __all__ = [
     "summarize_service",
     "geocoding",
     "geocode_service",
+    "frame_extraction",
 ]
