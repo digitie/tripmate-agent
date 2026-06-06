@@ -130,12 +130,6 @@ def select_stream_url(info: dict[str, Any]) -> str | None:
         and fmt.get("vcodec") not in (None, "none")
     ]
     if not candidates:
-        candidates = [
-            fmt
-            for fmt in formats
-            if isinstance(fmt, dict) and isinstance(fmt.get("url"), str)
-        ]
-    if not candidates:
         return None
 
     best = max(candidates, key=lambda fmt: (_numeric(fmt.get("height")), _numeric(fmt.get("tbr"))))
@@ -190,13 +184,16 @@ def extract_jpeg_with_ffmpeg(
         "image2",
         "pipe:1",
     ]
-    completed = runner(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-        timeout=timeout,
-    )
+    try:
+        completed = runner(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise FrameExtractionError("FFmpeg 대표 프레임 추출 타임아웃") from exc
     if completed.returncode != 0:
         stderr = (completed.stderr or b"").decode("utf-8", errors="replace")
         raise FrameExtractionError(f"FFmpeg 대표 프레임 추출 실패: {stderr}")
@@ -214,7 +211,11 @@ async def store_raw_media(
     data: bytes,
     content_type: str | None = None,
 ) -> MediaAsset:
-    """이미 확보한 원본 동영상 또는 오디오 bytes를 RustFS에 무기한 보존한다."""
+    """이미 확보한 소용량 원본 동영상 또는 오디오 bytes를 RustFS에 무기한 보존한다.
+
+    대용량 원본 동영상 다운로드 경로는 메모리에 전체 파일을 올리지 않는 스트리밍
+    업로드 API로 별도 연결해야 한다.
+    """
     return await media_store.store_and_record(
         session,
         store,

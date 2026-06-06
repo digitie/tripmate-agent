@@ -56,6 +56,33 @@ async def test_upsert_preserves_gemini_corrected(session):
     assert refreshed.title == "새 제목"
 
 
+async def test_upsert_ignores_empty_metadata_values(session):
+    await ingest_service.upsert_video(
+        session,
+        {
+            "video_id": "v-empty",
+            "channel_id": "UC1",
+            "title": "원래 제목",
+            "description_raw": "원래 설명",
+        },
+    )
+
+    await ingest_service.upsert_video(
+        session,
+        {
+            "video_id": "v-empty",
+            "channel_id": "",
+            "title": "",
+            "description_raw": "",
+        },
+    )
+
+    refreshed = await session.get(YoutubeVideo, "v-empty")
+    assert refreshed.channel_id == "UC1"
+    assert refreshed.title == "원래 제목"
+    assert refreshed.description_raw == "원래 설명"
+
+
 async def test_channel_watermark(session):
     assert await ingest_service.get_channel_watermark(session, "UC1") is None
     await ingest_service.upsert_video(

@@ -10,9 +10,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from typing import Protocol, runtime_checkable
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -101,7 +103,17 @@ async def store_and_record(
 ) -> MediaAsset:
     """객체를 업로드하고 `media_assets` 행을 기록한다."""
     bucket = bucket_for(asset_type)
-    uri = store.put_object(bucket, object_key, data, content_type)
+    existing_result = await session.execute(
+        select(MediaAsset).where(
+            MediaAsset.bucket == bucket,
+            MediaAsset.object_key == object_key,
+        )
+    )
+    existing = existing_result.scalars().first()
+    if existing is not None:
+        return existing
+
+    uri = await asyncio.to_thread(store.put_object, bucket, object_key, data, content_type)
     asset = MediaAsset(
         asset_type=asset_type,
         video_id=video_id,

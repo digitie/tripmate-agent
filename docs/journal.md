@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-06-05: T-024 PR #6~19 ETL·동영상·지오코딩 리뷰 반영
+
+- **담당자**: Codex
+- **작업 내용**:
+  - **YouTube API 보안·쿼터 보강**: API 키를 URL query string에서 제거하고 `X-goog-api-key` 헤더로 전달. HTTP 오류 메시지에서 키를 마스킹하고, 429/5xx/네트워크 재시도, per-run quota budget, `videos.list` 50개 chunking을 적용.
+  - **증분 채널 수집**: 채널 harvest에서 `get_channel_watermark`를 실제로 사용해 uploads playlist 항목이 기존 최신 업로드 시각 이하로 내려가면 pagination을 중단.
+  - **Gemini·RustFS 비동기 격리**: RustFS `put_object`와 Gemini POI 추출 호출을 executor로 격리. POI 추출 실패 시 영상 상태를 `failed`로 남기고, 같은 bucket/object_key의 `media_assets`는 재사용.
+  - **Gemini REST 호출 연결**: `make_gemini_llm`을 추가해 Gemini REST `generateContent` 호출에 JSON response schema를 전달. 기존 주입형 `llm` 테스트 구조는 유지.
+  - **프레임 추출 보강**: FFmpeg timeout을 `FrameExtractionError`로 래핑하고, 오디오 전용 스트림은 프레임 추출 후보에서 제외. 대용량 원본 저장 helper의 메모리 한계를 docstring에 명시.
+  - **지오코딩 보강**: VWorld 비-NoData 오류와 역지오코딩 오류는 fallback 가능하도록 흡수. road/parcel 동일 좌표 후보를 병합하고, 자동 지오코딩 확정 시 영상-장소 매핑과 geom 동기화를 수행. 근접 기존 장소 이름이 맞지 않으면 자동 재사용 대신 검수 대기로 남김.
+  - **검증**: ETL 타깃 테스트 67건, backend 전체 `pytest` 128건 통과.
+- **다음 작업**:
+  - PR #6~19 리뷰 중 프론트엔드·E2E·전환 기준 문서 묶음을 반영한다.
+
+---
+
 ## 2026-06-05: T-023 PR #6~19 백엔드 코어·MCP·스케줄러 리뷰 반영
 
 - **담당자**: Codex
