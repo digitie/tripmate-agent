@@ -12,11 +12,16 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from typing import Any
 
+import requests
 from pydantic import BaseModel, Field, ValidationError
+
+from app.core.config import get_settings
 
 # llm 시그니처: (prompt) -> JSON 문자열
 LlmCallable = Callable[[str], str]
+GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 
 class ExtractedPOI(BaseModel):
@@ -110,3 +115,57 @@ def extract_pois(
             last_error = exc
             continue
     raise POIExtractionError(f"POI 추출 파싱 실패: {last_error}")
+
+
+def make_gemini_llm(
+    *,
+    api_key: str | None = None,
+    model: str | None = None,
+    timeout_seconds: float = 60.0,
+) -> LlmCallable:
+    """Gemini REST API를 호출하는 production `LlmCallable`을 만든다."""
+    settings = get_settings()
+    resolved_key = api_key or settings.GEMINI_API_KEY
+    resolved_model = model or settings.GEMINI_ENGINE_VERSION
+    if not resolved_key:
+        raise ValueError("GEMINI_API_KEY가 필요하다")
+
+    def call(prompt: str) -> str:
+        response = requests.post(
+            f"{GEMINI_API_BASE_URL}/models/{resolved_model}:generateContent",
+            headers={
+                "Content-Type": "application/json",
+                "X-goog-api-key": resolved_key,
+            },
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "responseSchema": RESPONSE_JSON_SCHEMA,
+                },
+            },
+            timeout=timeout_seconds,
+        )
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            raise POIExtractionError(
+                f"Gemini POI 추출 호출 실패(status={response.status_code}, model={resolved_model})"
+            ) from exc
+        return _extract_gemini_text(response.json())
+
+    return call
+
+
+def _extract_gemini_text(payload: dict[str, Any]) -> str:
+    candidates = payload.get("candidates")
+    if not isinstance(candidates, list) or not candidates:
+        raise POIExtractionError("Gemini 응답에 candidates가 없다")
+    content = candidates[0].get("content") if isinstance(candidates[0], dict) else None
+    parts = content.get("parts") if isinstance(content, dict) else None
+    if not isinstance(parts, list):
+        raise POIExtractionError("Gemini 응답에 content.parts가 없다")
+    texts = [part.get("text") for part in parts if isinstance(part, dict) and part.get("text")]
+    if not texts:
+        raise POIExtractionError("Gemini 응답 text가 비어 있다")
+    return "\n".join(str(text) for text in texts)

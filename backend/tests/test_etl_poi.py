@@ -74,3 +74,48 @@ def test_response_schema_shape():
     assert schema["type"] == "object"
     assert "places" in schema["properties"]
     assert schema["properties"]["places"]["items"]["required"] == ["name"]
+
+
+def test_make_gemini_llm_sends_schema_and_extracts_text(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {"text": _VALID_JSON},
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    def fake_post(url, *, headers, json, timeout):
+        captured["url"] = url
+        captured["headers"] = headers
+        captured["json"] = json
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(poi_extraction.requests, "post", fake_post)
+
+    llm = poi_extraction.make_gemini_llm(
+        api_key="gemini-key",
+        model="gemini-flash-latest",
+        timeout_seconds=3,
+    )
+
+    assert llm("프롬프트") == _VALID_JSON
+    assert captured["url"].endswith("/models/gemini-flash-latest:generateContent")
+    assert captured["headers"]["X-goog-api-key"] == "gemini-key"
+    assert captured["json"]["generationConfig"]["responseMimeType"] == "application/json"
+    assert captured["json"]["generationConfig"]["responseSchema"] is poi_extraction.RESPONSE_JSON_SCHEMA
+    assert captured["timeout"] == 3

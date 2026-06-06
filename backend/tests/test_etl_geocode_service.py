@@ -6,7 +6,13 @@ from sqlalchemy import select
 
 from app.etl.geocode_service import apply_geocode_to_candidate
 from app.etl.geocoding import GeocodeCandidate, GeocodeDecision
-from app.models import ExtractedPlaceCandidate, MatchStatus, TravelPlace, YoutubeVideo
+from app.models import (
+    ExtractedPlaceCandidate,
+    MatchStatus,
+    TravelPlace,
+    VideoPlaceMapping,
+    YoutubeVideo,
+)
 
 
 async def _make_candidate(session, name="월정리 카페", category="카페"):
@@ -43,6 +49,9 @@ async def test_apply_matched_creates_place(session):
     assert refreshed.match_status == MatchStatus.MATCHED
     assert refreshed.matched_place_id == place.place_id
     assert refreshed.reviewed_at is not None
+    mapping = (await session.execute(select(VideoPlaceMapping))).scalars().one()
+    assert mapping.video_id == candidate.video_id
+    assert mapping.place_id == place.place_id
 
 
 async def test_apply_needs_review_keeps_candidate(session):
@@ -61,12 +70,12 @@ async def test_apply_needs_review_keeps_candidate(session):
 
 async def test_apply_matched_reuses_nearby_duplicate(session):
     # 기존 장소
-    existing = TravelPlace(name="기존", latitude=33.5563, longitude=126.7958, is_geocoded=True)
+    existing = TravelPlace(name="월정리 카페", latitude=33.5563, longitude=126.7958, is_geocoded=True)
     session.add(existing)
     await session.commit()
     await session.refresh(existing)
 
-    candidate = await _make_candidate(session, name="신규명")
+    candidate = await _make_candidate(session, name="월정리 카페")
     decision = GeocodeDecision(
         status="matched",
         candidate=GeocodeCandidate(latitude=33.55635, longitude=126.79585),  # ~약 6m
@@ -79,6 +88,27 @@ async def test_apply_matched_reuses_nearby_duplicate(session):
     assert place.place_id == existing.place_id
     places = (await session.execute(select(TravelPlace))).scalars().all()
     assert len(places) == 1
+
+
+async def test_apply_matched_nearby_name_mismatch_needs_review(session):
+    existing = TravelPlace(name="월정리 카페", latitude=33.5563, longitude=126.7958, is_geocoded=True)
+    session.add(existing)
+    await session.commit()
+
+    candidate = await _make_candidate(session, name="다른 식당")
+    decision = GeocodeDecision(
+        status="matched",
+        candidate=GeocodeCandidate(latitude=33.55635, longitude=126.79585),
+        confidence=1.0,
+        reason="single_result",
+        candidate_count=1,
+    )
+    place = await apply_geocode_to_candidate(session, candidate, decision)
+
+    assert place is None
+    refreshed = await session.get(ExtractedPlaceCandidate, candidate.id)
+    assert refreshed.match_status == MatchStatus.NEEDS_REVIEW
+    assert refreshed.review_note == "nearby_place_name_mismatch"
 
 
 async def test_apply_uses_vworld_for_address_enrichment(session):

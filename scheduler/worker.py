@@ -84,7 +84,11 @@ async def harvest_handler(session: AsyncSession, run: CrawlRun) -> dict[str, Any
 
     settings = get_settings()
     async with httpx.AsyncClient(timeout=30.0) as http_client:
-        client = YouTubeClient(api_key=settings.YOUTUBE_API_KEY, http_client=http_client)
+        client = YouTubeClient(
+            api_key=settings.YOUTUBE_API_KEY,
+            http_client=http_client,
+            quota_budget_units=settings.YOUTUBE_SEARCH_DAILY_BUDGET_UNITS,
+        )
         return await run_harvest(
             session,
             client,

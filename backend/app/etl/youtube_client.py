@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import httpx
@@ -24,19 +25,73 @@ QUOTA_COST = {
 }
 
 
+class YouTubeApiError(RuntimeError):
+    """YouTube Data API 호출 실패."""
+
+
+class YouTubeQuotaExceededError(RuntimeError):
+    """설정된 YouTube API 쿼터 예산을 초과하려는 경우."""
+
+
 class YouTubeClient:
-    def __init__(self, api_key: str, http_client: httpx.AsyncClient):
+    def __init__(
+        self,
+        api_key: str,
+        http_client: httpx.AsyncClient,
+        *,
+        quota_budget_units: int | None = None,
+        max_retries: int = 3,
+    ):
         self._api_key = api_key
         self._client = http_client
+        self._quota_budget_units = quota_budget_units
+        self._max_retries = max_retries
         self.quota_used = 0
 
     async def _get(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         query = {k: v for k, v in params.items() if v is not None}
-        query["key"] = self._api_key
-        resp = await self._client.get(f"{BASE_URL}/{path}", params=query)
-        resp.raise_for_status()
-        self.quota_used += QUOTA_COST.get(path, 1)
-        return resp.json()
+        cost = QUOTA_COST.get(path, 1)
+        self._ensure_quota(cost)
+
+        last_error: Exception | None = None
+        for attempt in range(self._max_retries + 1):
+            try:
+                resp = await self._client.get(
+                    f"{BASE_URL}/{path}",
+                    params=query,
+                    headers={"X-goog-api-key": self._api_key},
+                )
+                if resp.status_code in {429, 500, 502, 503, 504} and attempt < self._max_retries:
+                    await asyncio.sleep(0.5 * (2**attempt))
+                    continue
+                resp.raise_for_status()
+                self.quota_used += cost
+                return resp.json()
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                status_code = exc.response.status_code
+                if status_code in {429, 500, 502, 503, 504} and attempt < self._max_retries:
+                    await asyncio.sleep(0.5 * (2**attempt))
+                    continue
+                raise YouTubeApiError(
+                    f"YouTube API {path} 호출 실패(status={status_code}, url={_mask_api_key(str(exc.request.url), self._api_key)})"
+                ) from exc
+            except httpx.HTTPError as exc:
+                last_error = exc
+                if attempt < self._max_retries:
+                    await asyncio.sleep(0.5 * (2**attempt))
+                    continue
+                raise YouTubeApiError(f"YouTube API {path} 네트워크 오류: {exc}") from exc
+
+        raise YouTubeApiError(f"YouTube API {path} 호출 실패: {last_error}")
+
+    def _ensure_quota(self, cost: int) -> None:
+        if self._quota_budget_units is None:
+            return
+        if self.quota_used + cost > self._quota_budget_units:
+            raise YouTubeQuotaExceededError(
+                f"YouTube API 쿼터 예산 초과: used={self.quota_used}, cost={cost}, budget={self._quota_budget_units}"
+            )
 
     async def search_list(
         self,
@@ -56,7 +111,7 @@ class YouTubeClient:
                 "order": "date",
                 "q": query,
                 "channelId": channel_id,
-                "maxResults": max_results,
+                "maxResults": _clamp_max_results(max_results),
                 "publishedAfter": published_after,
                 "pageToken": page_token,
             },
@@ -64,10 +119,16 @@ class YouTubeClient:
 
     async def videos_list(self, video_ids: list[str]) -> dict[str, Any]:
         """영상 상세 메타데이터/통계 조회 (쿼터 1)."""
-        return await self._get(
-            "videos",
-            {"part": "snippet,statistics", "id": ",".join(video_ids)},
-        )
+        items: list[dict[str, Any]] = []
+        for chunk in _chunks([video_id for video_id in video_ids if video_id], 50):
+            data = await self._get(
+                "videos",
+                {"part": "snippet,statistics", "id": ",".join(chunk)},
+            )
+            chunk_items = data.get("items", [])
+            if isinstance(chunk_items, list):
+                items.extend(item for item in chunk_items if isinstance(item, dict))
+        return {"items": items}
 
     async def channels_list(self, channel_id: str) -> dict[str, Any]:
         """채널 contentDetails 조회 (쿼터 1)."""
@@ -84,7 +145,7 @@ class YouTubeClient:
             {
                 "part": "snippet,contentDetails",
                 "playlistId": playlist_id,
-                "maxResults": max_results,
+                "maxResults": _clamp_max_results(max_results),
                 "pageToken": page_token,
             },
         )
@@ -96,3 +157,17 @@ class YouTubeClient:
         if not items:
             return None
         return items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+
+
+def _clamp_max_results(value: int) -> int:
+    return max(1, min(int(value), 50))
+
+
+def _chunks(values: list[str], size: int) -> list[list[str]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+def _mask_api_key(value: str, api_key: str) -> str:
+    if api_key:
+        value = value.replace(api_key, "***")
+    return value

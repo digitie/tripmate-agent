@@ -425,6 +425,15 @@ async def _ensure_candidate_mapping(
     return mapping
 
 
+async def ensure_candidate_mapping(
+    session: AsyncSession,
+    candidate: ExtractedPlaceCandidate,
+    place: TravelPlace,
+) -> VideoPlaceMapping:
+    """후보와 확정 장소 사이의 영상 매핑을 멱등 생성한다."""
+    return await _ensure_candidate_mapping(session, candidate, place)
+
+
 async def list_unmatched_candidates(
     session: AsyncSession, *, limit: int = 100
 ) -> list[ExtractedPlaceCandidate]:

@@ -64,6 +64,15 @@ def test_select_stream_url_direct_url_wins():
     assert select_stream_url({"url": "direct", "formats": [{"url": "other"}]}) == "direct"
 
 
+def test_select_stream_url_rejects_audio_only_formats():
+    info = {
+        "formats": [
+            {"url": "audio", "vcodec": "none", "height": None, "tbr": 128},
+        ]
+    }
+    assert select_stream_url(info) is None
+
+
 def test_extract_jpeg_with_ffmpeg_uses_input_seeking():
     captured = {}
 
@@ -90,6 +99,14 @@ def test_extract_jpeg_with_ffmpeg_raises_on_failure():
         return subprocess.CompletedProcess(cmd, 1, stdout=b"", stderr=b"boom")
 
     with pytest.raises(FrameExtractionError, match="boom"):
+        extract_jpeg_with_ffmpeg("https://stream", 0, runner=runner)
+
+
+def test_extract_jpeg_with_ffmpeg_wraps_timeout():
+    def runner(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, timeout=kwargs["timeout"])
+
+    with pytest.raises(FrameExtractionError, match="타임아웃"):
         extract_jpeg_with_ffmpeg("https://stream", 0, runner=runner)
 
 

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from app.core.spatial import sync_place_geometry
 from app.etl.geocoding import (
     GeocodeDecision,
     KakaoGeocoder,
@@ -31,14 +32,16 @@ async def geocode_query(
     naver: NaverGeocoder | None = None,
 ) -> GeocodeDecision:
     """주소/장소명 문자열을 지오코딩하고 평가 결과를 반환한다."""
+    vworld_results = []
     if vworld is not None:
         vworld_results = await geocode_with_vworld(vworld, query)
         if vworld_results:
-            kakao_results = (
-                await kakao.geocode(query)
-                if kakao is not None and len(vworld_results) > 1
-                else []
-            )
+            kakao_results = []
+            if kakao is not None and len(vworld_results) > 1:
+                try:
+                    kakao_results = await kakao.geocode(query)
+                except Exception:
+                    kakao_results = []
             return evaluate_geocode(
                 vworld_results,
                 kakao_results,
@@ -46,12 +49,26 @@ async def geocode_query(
             )
 
     if kakao is not None:
-        kakao_results = await kakao.geocode(query)
-        naver_results = await naver.geocode(query) if naver else []
-        return evaluate_geocode(kakao_results, naver_results, secondary_name="naver")
+        try:
+            kakao_results = await kakao.geocode(query)
+        except Exception:
+            kakao_results = []
+        naver_results = []
+        if naver is not None and (not kakao_results or len(kakao_results) > 1):
+            try:
+                naver_results = await naver.geocode(query)
+            except Exception:
+                naver_results = []
+        if kakao_results:
+            return evaluate_geocode(kakao_results, naver_results, secondary_name="naver")
+        if naver_results:
+            return evaluate_geocode(naver_results)
 
     if naver is not None:
-        naver_results = await naver.geocode(query)
+        try:
+            naver_results = await naver.geocode(query)
+        except Exception:
+            naver_results = []
         return evaluate_geocode(naver_results)
 
     return evaluate_geocode([])
@@ -86,6 +103,15 @@ async def apply_geocode_to_candidate(
     )
     if dups:
         place = dups[0][0]
+        if not _names_compatible(
+            candidate.ai_place_name,
+            place.name,
+            c.place_name,
+        ):
+            candidate.match_status = MatchStatus.NEEDS_REVIEW
+            candidate.review_note = "nearby_place_name_mismatch"
+            await session.commit()
+            return None
     else:
         road, official = c.road_address, c.official_address
         if vworld is not None:
@@ -109,6 +135,23 @@ async def apply_geocode_to_candidate(
     candidate.matched_place_id = place.place_id
     candidate.reviewed_by = reviewer
     candidate.reviewed_at = utcnow()
+    await place_service.ensure_candidate_mapping(session, candidate, place)
+    await sync_place_geometry(session, place.place_id, place.latitude, place.longitude)
     await session.commit()
     await session.refresh(place)
     return place
+
+
+def _names_compatible(*values: str | None) -> bool:
+    normalized = [_normalize_name(value) for value in values if value]
+    for index, left in enumerate(normalized):
+        for right in normalized[index + 1 :]:
+            if left == right:
+                return True
+            if len(left) >= 2 and len(right) >= 2 and (left in right or right in left):
+                return True
+    return False
+
+
+def _normalize_name(value: str | None) -> str:
+    return "".join((value or "").casefold().split())

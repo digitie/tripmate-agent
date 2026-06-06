@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -83,20 +83,49 @@ def _video_id_from_playlist_item(item: dict[str, Any]) -> str | None:
     return resource.get("videoId")
 
 
+def _published_at_from_playlist_item(item: dict[str, Any]) -> datetime | None:
+    content_details = item.get("contentDetails", {})
+    value = content_details.get("videoPublishedAt")
+    if not value:
+        value = item.get("snippet", {}).get("publishedAt")
+    return ingest_service.parse_published_at(value)
+
+
+def _as_utc_aware(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 async def _collect_playlist_video_ids(
-    client: YouTubeClient, playlist_id: str, *, max_videos: int
+    client: YouTubeClient,
+    playlist_id: str,
+    *,
+    max_videos: int,
+    stop_at_or_before: datetime | None = None,
 ) -> list[str]:
     """재생목록 항목에서 중복 없는 video_id를 모은다."""
     ids: list[str] = []
     seen: set[str] = set()
     page_token: str | None = None
-    while len(ids) < max_videos:
+    stop_pagination = False
+    while len(ids) < max_videos and not stop_pagination:
         data = await client.playlist_items_list(
             playlist_id,
             max_results=min(50, max_videos - len(ids)),
             page_token=page_token,
         )
         for item in data.get("items", []):
+            published_at = _as_utc_aware(_published_at_from_playlist_item(item))
+            if (
+                stop_at_or_before is not None
+                and published_at is not None
+                and published_at <= stop_at_or_before
+            ):
+                stop_pagination = True
+                break
             video_id = _video_id_from_playlist_item(item)
             if video_id and video_id not in seen:
                 seen.add(video_id)
@@ -110,14 +139,21 @@ async def _collect_playlist_video_ids(
 
 
 async def _collect_channel_video_ids(
-    client: YouTubeClient, channel_id: str, *, max_videos: int
+    client: YouTubeClient,
+    channel_id: str,
+    *,
+    max_videos: int,
+    stop_at_or_before: datetime | None = None,
 ) -> tuple[list[str], str | None]:
     """채널 업로드 재생목록을 찾아 video_id를 모은다."""
     uploads_playlist_id = await client.uploads_playlist_id(channel_id)
     if not uploads_playlist_id:
         return [], None
     ids = await _collect_playlist_video_ids(
-        client, uploads_playlist_id, max_videos=max_videos
+        client,
+        uploads_playlist_id,
+        max_videos=max_videos,
+        stop_at_or_before=stop_at_or_before,
     )
     return ids, uploads_playlist_id
 
@@ -151,8 +187,12 @@ async def run_harvest(
     elif channel_id:
         target_type = "channel"
         target_id = channel_id
+        watermark = _as_utc_aware(await ingest_service.get_channel_watermark(session, channel_id))
         video_ids, uploads_playlist_id = await _collect_channel_video_ids(
-            client, channel_id, max_videos=max_videos
+            client,
+            channel_id,
+            max_videos=max_videos,
+            stop_at_or_before=watermark,
         )
     else:
         if not seed_keyword:

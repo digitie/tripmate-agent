@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
@@ -43,24 +44,38 @@ async def summarize_video(
         await session.commit()
         return {"video_id": video.video_id, "status": "no_transcript", "candidates": 0}
 
+    transcript_text = transcript.to_timestamped_text()
+
     # 1) 자막/전사 결과를 RustFS에 저장하고 media_assets에 기록
     asset = await media_store.store_and_record(
         session,
         store,
         asset_type=AssetType.TRANSCRIPT,
         object_key=f"{video.video_id}/transcript_{transcript.source}.txt",
-        data=transcript.to_timestamped_text().encode("utf-8"),
+        data=transcript_text.encode("utf-8"),
         content_type="text/plain; charset=utf-8",
         video_id=video.video_id,
     )
 
     # 2) Gemini POI 추출 (파싱 실패 시 재시도)
-    result = poi_extraction.extract_pois(
-        timestamped_transcript=transcript.to_timestamped_text(),
-        description_raw=video.description_raw,
-        llm=llm,
-        max_retries=max_retries,
-    )
+    try:
+        result = await asyncio.to_thread(
+            poi_extraction.extract_pois,
+            timestamped_transcript=transcript_text,
+            description_raw=video.description_raw,
+            llm=llm,
+            max_retries=max_retries,
+        )
+    except poi_extraction.POIExtractionError as exc:
+        video.crawl_status = CrawlStatus.FAILED
+        await session.commit()
+        return {
+            "video_id": video.video_id,
+            "status": "poi_extraction_failed",
+            "error": str(exc),
+            "transcript_asset_id": asset.id,
+            "candidates": 0,
+        }
 
     # 3) 영상 설명 보정본 저장 (원문 description_raw 보존)
     if result.description_gemini_corrected:

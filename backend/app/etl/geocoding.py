@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from vworld import AsyncVworldClient, VworldNoDataError
+from vworld import AsyncVworldClient, VworldError, VworldNoDataError
 
 # 모호 후보 좌표 일치 판정 반경(미터)과 최소 매칭 신뢰도
 DISAMBIGUATION_RADIUS_M = 150.0
@@ -83,15 +83,23 @@ async def request_with_backoff(
     base_delay: float = 0.5,
     semaphore: asyncio.Semaphore | None = None,
 ) -> httpx.Response:
-    """429 응답에 지수 백오프 + 지터를 적용해 재시도한다."""
+    """429/5xx/네트워크 오류에 지수 백오프 + 지터를 적용해 재시도한다."""
     attempt = 0
     while True:
-        if semaphore is not None:
-            async with semaphore:
+        try:
+            if semaphore is not None:
+                async with semaphore:
+                    resp = await send()
+            else:
                 resp = await send()
-        else:
-            resp = await send()
-        if resp.status_code != 429 or attempt >= max_retries:
+        except httpx.HTTPError:
+            if attempt >= max_retries:
+                raise
+            delay = base_delay * (2**attempt) + random.uniform(0, base_delay)
+            await asyncio.sleep(delay)
+            attempt += 1
+            continue
+        if resp.status_code not in {429, 500, 502, 503, 504} or attempt >= max_retries:
             return resp
         delay = base_delay * (2**attempt) + random.uniform(0, base_delay)
         await asyncio.sleep(delay)
@@ -252,7 +260,7 @@ async def geocode_with_vworld(
     """`AsyncVworldClient`를 직접 호출해 VWorld 좌표 후보를 만든다."""
 
     out: list[GeocodeCandidate] = []
-    seen: set[tuple[float, float, str | None, str | None]] = set()
+    by_coord: dict[tuple[float, float], GeocodeCandidate] = {}
     for addr_type in ("road", "parcel"):
         try:
             payload = await client.get_coord(
@@ -264,19 +272,22 @@ async def geocode_with_vworld(
             )
         except VworldNoDataError:
             continue
+        except (VworldError, httpx.HTTPError):
+            continue
 
         candidate = _candidate_from_vworld_get_coord(payload, addr_type, address)
         if candidate is None:
             continue
-        key = (
-            round(candidate.latitude, 7),
-            round(candidate.longitude, 7),
-            candidate.road_address,
-            candidate.official_address,
-        )
-        if key in seen:
+        key = (round(candidate.latitude, 7), round(candidate.longitude, 7))
+        existing = by_coord.get(key)
+        if existing is not None:
+            existing.road_address = existing.road_address or candidate.road_address
+            existing.official_address = (
+                existing.official_address or candidate.official_address
+            )
+            existing.place_name = existing.place_name or candidate.place_name
             continue
-        seen.add(key)
+        by_coord[key] = candidate
         out.append(candidate)
     return out
 
@@ -335,7 +346,7 @@ async def _reverse_vworld_text(
             simple=False,
             crs="EPSG:4326",
         )
-    except VworldNoDataError:
+    except (VworldNoDataError, VworldError, httpx.HTTPError):
         return None
 
     results = payload.get("response", {}).get("result", [])

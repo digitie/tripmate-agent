@@ -103,7 +103,7 @@ async def upsert_video(
 
     # 멱등: 통계/메타데이터를 갱신하되 Gemini 보정 필드는 건드리지 않는다.
     for key, value in fields.items():
-        if value is not None:
+        if value is not None and value != "":
             setattr(existing, key, value)
     await session.commit()
     await session.refresh(existing)

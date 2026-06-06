@@ -136,6 +136,35 @@ async def test_vworld_client_direct_geocode_parses():
     assert results[0].road_address == "경기도 성남시 분당구 판교로 242"
 
 
+async def test_vworld_road_parcel_same_point_merges_addresses():
+    class FakeVWorldClient:
+        async def get_coord(self, address, type, **kwargs):
+            text = "도로명주소" if type == "road" else "지번주소"
+            return {
+                "response": {
+                    "status": "OK",
+                    "result": {
+                        "refined": {"text": text},
+                        "point": {"x": "127.101313354", "y": "37.402352535"},
+                    },
+                }
+            }
+
+    results = await geocode_with_vworld(FakeVWorldClient(), "판교로 242")
+
+    assert len(results) == 1
+    assert results[0].road_address == "도로명주소"
+    assert results[0].official_address == "지번주소"
+
+
+async def test_vworld_errors_return_empty_candidates():
+    class FakeVWorldClient:
+        async def get_coord(self, address, type, **kwargs):
+            raise geocoding.VworldError("auth failed")
+
+    assert await geocode_with_vworld(FakeVWorldClient(), "판교로 242") == []
+
+
 async def test_vworld_client_direct_reverse_parses():
     class FakeVWorldClient:
         async def reverse_geocode_latlon(self, lat, lon, **kwargs):
@@ -153,6 +182,17 @@ async def test_vworld_client_direct_reverse_parses():
     }
 
 
+async def test_vworld_reverse_errors_return_none_addresses():
+    class FakeVWorldClient:
+        async def reverse_geocode_latlon(self, lat, lon, **kwargs):
+            raise geocoding.VworldError("temporary")
+
+    assert await reverse_with_vworld(FakeVWorldClient(), 37.402352535, 127.101313354) == {
+        "road_address": None,
+        "parcel_address": None,
+    }
+
+
 async def test_backoff_retries_on_429():
     calls = {"n": 0}
 
@@ -165,6 +205,20 @@ async def test_backoff_retries_on_429():
     resp = await request_with_backoff(send, max_retries=5, base_delay=0.0)
     assert resp.status_code == 200
     assert calls["n"] == 3
+
+
+async def test_backoff_retries_on_5xx():
+    calls = {"n": 0}
+
+    async def send():
+        calls["n"] += 1
+        if calls["n"] < 2:
+            return httpx.Response(503)
+        return httpx.Response(200, json={"ok": True})
+
+    resp = await request_with_backoff(send, max_retries=2, base_delay=0.0)
+    assert resp.status_code == 200
+    assert calls["n"] == 2
 
 
 async def test_backoff_gives_up_after_max():

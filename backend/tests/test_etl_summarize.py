@@ -56,6 +56,17 @@ async def test_store_and_record(session):
     assert asset.retention_policy == "infinite"
     assert ("tripmate-subtitles", "v1/sub.txt") in store.objects
 
+    reused = await store_and_record(
+        session,
+        store,
+        asset_type=AssetType.SUBTITLE,
+        object_key="v1/sub.txt",
+        data=b"changed",
+        content_type="text/plain",
+        video_id="v1",
+    )
+    assert reused.id == asset.id
+
 
 async def _make_video(session):
     v = YoutubeVideo(
@@ -107,6 +118,30 @@ async def test_summarize_video_no_transcript(session):
         session, store, video=video, transcript=None, llm=lambda _: _LLM_JSON
     )
     assert summary["status"] == "no_transcript"
+    assert summary["candidates"] == 0
+    refreshed = await session.get(YoutubeVideo, "v1")
+    assert refreshed.crawl_status == CrawlStatus.FAILED
+
+
+async def test_summarize_video_marks_failed_when_poi_extraction_fails(session):
+    video = await _make_video(session)
+    store = InMemoryMediaStore()
+    transcript = TranscriptResult(
+        video_id="v1",
+        source="transcript_api",
+        segments=[TranscriptSegment(30.0, "월정리 카페 소개")],
+    )
+
+    summary = await summarize_service.summarize_video(
+        session,
+        store,
+        video=video,
+        transcript=transcript,
+        llm=lambda _: "not-json",
+        max_retries=0,
+    )
+
+    assert summary["status"] == "poi_extraction_failed"
     assert summary["candidates"] == 0
     refreshed = await session.get(YoutubeVideo, "v1")
     assert refreshed.crawl_status == CrawlStatus.FAILED

@@ -9,7 +9,11 @@ import pytest_asyncio
 from sqlalchemy import select
 
 from app.etl import pipeline
-from app.etl.youtube_client import YouTubeClient
+from app.etl.youtube_client import (
+    YouTubeApiError,
+    YouTubeClient,
+    YouTubeQuotaExceededError,
+)
 from app.models import SearchKeyword, YoutubeVideo
 
 NOW = datetime(2026, 6, 5, tzinfo=timezone.utc)
@@ -88,6 +92,8 @@ _PLAYLIST_PAGE_2 = {
 
 
 def _handler(request: httpx.Request) -> httpx.Response:
+    assert "key" not in request.url.params
+    assert request.headers.get("x-goog-api-key") == "test-key"
     path = request.url.path
     if path.endswith("/search"):
         return httpx.Response(200, json=_SEARCH_RESPONSE)
@@ -192,6 +198,81 @@ async def test_run_harvest_channel_uses_uploads_playlist(session, yt_client):
     assert {v.video_id for v in videos} == {"v1", "v2", "v3"}
 
 
+async def test_channel_harvest_stops_at_existing_watermark(session):
+    seen_paths: list[str] = []
+
+    await session.merge(
+        YoutubeVideo(
+            video_id="old",
+            title="이전 영상",
+            url="https://youtu.be/old",
+            channel_id="UC1",
+            published_at=datetime(2026, 5, 20, tzinfo=timezone.utc),
+        )
+    )
+    await session.commit()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(request.url.path)
+        if request.url.path.endswith("/channels"):
+            return httpx.Response(200, json=_CHANNEL_RESPONSE)
+        if request.url.path.endswith("/playlistItems"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "contentDetails": {
+                                "videoId": "v-new",
+                                "videoPublishedAt": "2026-06-01T00:00:00Z",
+                            }
+                        },
+                        {
+                            "contentDetails": {
+                                "videoId": "old",
+                                "videoPublishedAt": "2026-05-20T00:00:00Z",
+                            }
+                        },
+                    ],
+                    "nextPageToken": "SHOULD_NOT_FETCH",
+                },
+            )
+        if request.url.path.endswith("/videos"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": "v-new",
+                            "snippet": {
+                                "title": "새 영상",
+                                "channelId": "UC1",
+                                "channelTitle": "여행채널",
+                                "publishedAt": "2026-06-01T00:00:00Z",
+                            },
+                            "statistics": {},
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = YouTubeClient(api_key="test-key", http_client=http)
+        summary = await pipeline.run_harvest(
+            session,
+            client,
+            channel_id="UC1",
+            max_videos=10,
+            now=NOW,
+        )
+
+    assert summary["discovered"] == 1
+    assert seen_paths.count("/youtube/v3/playlistItems") == 1
+    videos = (await session.execute(select(YoutubeVideo))).scalars().all()
+    assert {v.video_id for v in videos} == {"old", "v-new"}
+
+
 async def test_build_candidate_scoring():
     item = _VIDEOS_RESPONSE["items"][0]
     cand = pipeline.build_candidate(item, seed="제주도 맛집", now=NOW)
@@ -200,3 +281,59 @@ async def test_build_candidate_scoring():
     assert cand["like_count"] == 1000
     assert 0 < cand["engagement_score"] <= 1
     assert cand["priority_score"] > 0
+
+
+async def test_youtube_client_masks_api_key_on_http_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert "key" not in request.url.params
+        assert request.headers.get("x-goog-api-key") == "secret-key"
+        return httpx.Response(403, json={"error": "quota"}, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = YouTubeClient(api_key="secret-key", http_client=http, max_retries=0)
+        try:
+            await client.search_list(query="제주")
+        except YouTubeApiError as exc:
+            message = str(exc)
+        else:  # pragma: no cover - 실패해야 하는 경로
+            raise AssertionError("YouTubeApiError가 발생해야 한다")
+
+    assert "secret-key" not in message
+    assert "status=403" in message
+
+
+async def test_youtube_client_enforces_quota_budget():
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_handler)) as http:
+        client = YouTubeClient(
+            api_key="test-key",
+            http_client=http,
+            quota_budget_units=99,
+        )
+        try:
+            await client.search_list(query="제주")
+        except YouTubeQuotaExceededError as exc:
+            message = str(exc)
+        else:  # pragma: no cover - 실패해야 하는 경로
+            raise AssertionError("YouTubeQuotaExceededError가 발생해야 한다")
+
+    assert "budget=99" in message
+
+
+async def test_videos_list_chunks_more_than_fifty_ids():
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        ids = request.url.params.get("id", "")
+        calls.append(ids)
+        return httpx.Response(
+            200,
+            json={"items": [{"id": video_id} for video_id in ids.split(",") if video_id]},
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = YouTubeClient(api_key="test-key", http_client=http)
+        data = await client.videos_list([f"v{i}" for i in range(55)])
+
+    assert len(calls) == 2
+    assert len(calls[0].split(",")) == 50
+    assert len(data["items"]) == 55
