@@ -403,9 +403,9 @@ Zustand는 현 단계에서 도입하지 않는다. 서버 데이터는 TanStack
 
 | 후보 | 도입 기준 | 전환 범위 |
 | --- | --- | --- |
-| sqlite-vec / SQLite Vec1 | 확정 장소·영상 설명이 수천~수만 건으로 늘고 키워드 검색만으로 탐색 품질이 부족할 때 | `place_embeddings` 별도 테이블과 검색 서비스 함수. 기본 API와 `travel_places` 스키마는 유지 |
-| PostgreSQL/PostGIS | 확정 장소 100,000건 이상, 영상-장소 매핑 1,000,000건 이상, 반경 검색 p95 500ms 초과, SQLite write lock 반복 | `app.core.spatial`, `app.services.place_service`, DB migration. `ST_DWithin` + GiST 인덱스 사용 |
-| PgQueuer | PostgreSQL 전환 이후 backlog가 5분 이상 지속되거나 단일 worker SLA를 못 맞출 때 | `crawl_runs` claim/worker loop를 DB native queue로 이전 |
+| sqlite-vec / SQLite Vec1 | 확정 장소 20,000건 이상 또는 최근 30일 검색 결과 0건/오탐으로 인한 수동 보정 비율 20% 초과 | `place_embeddings` 별도 테이블과 검색 서비스 함수. 기본 API와 `travel_places` 스키마는 유지 |
+| PostgreSQL/PostGIS | 확정 장소 100,000건 이상, 영상-장소 매핑 1,000,000건 이상, 반경 검색 p95 500ms 초과, 최근 7일 `database is locked` 재시도 10회 이상 | `app.core.spatial`, `app.services.place_service`, DB migration. ADR-12/ADR-17 후속 갱신과 `ST_DWithin` + GiST 인덱스 사용 |
+| PgQueuer | PostgreSQL 전환 이후 pending 대기 작업 최고 연령 5분 초과가 3회 연속 관측되거나 단일 worker가 24시간 내 신규 영상 처리량을 소화하지 못할 때 | `crawl_runs` claim/worker loop를 DB native queue로 이전 |
 | APScheduler + PostgreSQL advisory lock | 여러 scheduler 프로세스 중 단일 leader만 보장하면 충분할 때 | scheduler leader election 보조. 여러 consumer queue 처리에는 사용하지 않음 |
 | Celery + Beat | DB native queue로 부족하고 외부 worker 격리, 분산 retry, 별도 broker 운영이 필요할 때 | 별도 broker와 worker observability를 포함하는 새 ADR 필요 |
 | Airflow / Dagster | 수백 데이터소스와 DAG 의존성, 수동 backfill, 데이터 품질 SLA가 필요할 때 | ETL orchestration 재설계 필요 |

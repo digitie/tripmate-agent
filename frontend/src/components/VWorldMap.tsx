@@ -64,6 +64,13 @@ export function VWorldMap({
         marker.getElement().addEventListener("click", () => onSelectPlace(place.place_id));
         return marker;
       });
+  }, [onSelectPlace, places, selectedPlaceId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
     const selected = places.find((place) => place.place_id === selectedPlaceId);
     if (selected) {
       map.easeTo({
@@ -72,15 +79,24 @@ export function VWorldMap({
         duration: 500,
       });
     }
-  }, [onSelectPlace, places, selectedPlaceId]);
+  }, [places, selectedPlaceId]);
 
   return (
-    <div
-      id="vworld-map-container"
-      ref={containerRef}
-      className="h-full w-full bg-muted"
-      data-status={VWORLD_SERVICE_KEY ? "vworld" : "fallback"}
-    />
+    <div className="relative h-full w-full">
+      <div
+        id="vworld-map-container"
+        ref={containerRef}
+        role="region"
+        aria-label="VWorld 지도"
+        className="h-full w-full bg-muted"
+        data-status={VWORLD_SERVICE_KEY ? "vworld" : "fallback"}
+      />
+      {!VWORLD_SERVICE_KEY ? (
+        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-muted/70 text-sm text-muted-foreground">
+          VWorld 지도 키 없음
+        </div>
+      ) : null}
+    </div>
   );
 }
 

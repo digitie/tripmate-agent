@@ -97,6 +97,10 @@ export type RustfsStatus = {
   assets: RustfsAssetSummary[];
 };
 
+export type RuntimeSettings = {
+  gemini_engine_version: string;
+};
+
 export type ResolveCandidateInput = {
   action: "match_existing" | "create_place" | "ignore";
   placeId?: number;
@@ -130,8 +134,13 @@ async function requestJson<T>(
     },
   });
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `API 요청 실패: ${response.status}`);
+    const body = await response.text();
+    const message = body.length > 240 ? `${body.slice(0, 240)}...` : body;
+    throw new Error(
+      message
+        ? `API 요청 실패(${response.status}): ${message}`
+        : `API 요청 실패(${response.status})`,
+    );
   }
   return (await response.json()) as T;
 }
@@ -165,6 +174,19 @@ export async function listAuditLogs(): Promise<AuditLogSummary[]> {
 
 export async function getRustfsStatus(): Promise<RustfsStatus> {
   return requestJson<RustfsStatus>("/api/storage/rustfs");
+}
+
+export async function getRuntimeSettings(): Promise<RuntimeSettings> {
+  return requestJson<RuntimeSettings>("/api/settings");
+}
+
+export async function updateRuntimeSettings(
+  input: RuntimeSettings,
+): Promise<{ status: string; settings: RuntimeSettings }> {
+  return requestJson<{ status: string; settings: RuntimeSettings }>("/api/settings", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function resolveCandidate(
