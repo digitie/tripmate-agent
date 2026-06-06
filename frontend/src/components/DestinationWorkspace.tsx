@@ -1,12 +1,15 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DatabaseIcon,
   FlaskConicalIcon,
   MapPinIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
 
 import {
   getRustfsStatus,
@@ -16,13 +19,47 @@ import {
   listUnmatchedCandidates,
   resolveCandidate,
   triggerDeepResearch,
+  type AuditLogSummary,
+  type CrawlRunSummary,
   type DestinationSummary,
+  type RustfsStatus,
   type UnmatchedCandidate,
 } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { VWorldMap } from "@/components/VWorldMap";
+
+const reviewQueueSchema = z.object({
+  name: z.string().trim().min(1, "장소명을 입력하세요."),
+  latitude: z
+    .string()
+    .trim()
+    .min(1, "위도를 입력하세요.")
+    .refine((value) => Number.isFinite(Number(value)), "숫자로 입력하세요.")
+    .refine((value) => {
+      const number = Number(value);
+      return number >= -90 && number <= 90;
+    }, "위도는 -90부터 90 사이여야 합니다."),
+  longitude: z
+    .string()
+    .trim()
+    .min(1, "경도를 입력하세요.")
+    .refine((value) => Number.isFinite(Number(value)), "숫자로 입력하세요.")
+    .refine((value) => {
+      const number = Number(value);
+      return number >= -180 && number <= 180;
+    }, "경도는 -180부터 180 사이여야 합니다."),
+  category: z.string().trim().optional(),
+});
+
+type ReviewQueueFormValues = z.infer<typeof reviewQueueSchema>;
 
 export function DestinationWorkspace() {
   const queryClient = useQueryClient();
@@ -60,9 +97,21 @@ export function DestinationWorkspace() {
     () => places.find((place) => place.place_id === selectedPlaceId) ?? places[0] ?? null,
     [places, selectedPlaceId],
   );
-  const selectedCandidate =
-    (unmatchedQuery.data ?? []).find((candidate) => candidate.id === selectedCandidateId) ??
-    (unmatchedQuery.data ?? [])[0] ??
+  const candidates = useMemo(
+    () => unmatchedQuery.data ?? [],
+    [unmatchedQuery.data],
+  );
+  const selectedCandidate = useMemo(
+    () =>
+      candidates.find((candidate) => candidate.id === selectedCandidateId) ??
+      candidates[0] ??
+      null,
+    [candidates, selectedCandidateId],
+  );
+  const operationError =
+    runsQuery.error?.message ??
+    auditQuery.error?.message ??
+    rustfsQuery.error?.message ??
     null;
 
   const deepResearchMutation = useMutation({
@@ -87,11 +136,13 @@ export function DestinationWorkspace() {
           onSelect={setSelectedPlaceId}
           onDeepResearch={(placeId) => deepResearchMutation.mutate(placeId)}
           isResearching={deepResearchMutation.isPending}
+          researchError={deepResearchMutation.error?.message ?? null}
         />
         <ReviewQueue
-          candidates={unmatchedQuery.data ?? []}
+          candidates={candidates}
           selectedCandidate={selectedCandidate}
           onSelect={setSelectedCandidateId}
+          errorMessage={unmatchedQuery.error?.message ?? null}
           onResolved={() => {
             queryClient.invalidateQueries({ queryKey: ["destinations"] });
             queryClient.invalidateQueries({ queryKey: ["unmatched-candidates"] });
@@ -102,6 +153,7 @@ export function DestinationWorkspace() {
           runs={runsQuery.data ?? []}
           audits={auditQuery.data ?? []}
           rustfs={rustfsQuery.data}
+          errorMessage={operationError}
         />
       </div>
     </div>
@@ -115,6 +167,7 @@ function DestinationList({
   onSelect,
   onDeepResearch,
   isResearching,
+  researchError,
 }: {
   places: DestinationSummary[];
   selectedPlace: DestinationSummary | null;
@@ -122,6 +175,7 @@ function DestinationList({
   onSelect: (placeId: number) => void;
   onDeepResearch: (placeId: number) => void;
   isResearching: boolean;
+  researchError: string | null;
 }) {
   return (
     <section
@@ -170,6 +224,11 @@ function DestinationList({
             <FlaskConicalIcon data-icon="inline-start" />
             Deep Research
           </Button>
+          {researchError ? (
+            <p role="alert" className="text-xs text-destructive">
+              {researchError}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </section>
@@ -180,35 +239,53 @@ function ReviewQueue({
   candidates,
   selectedCandidate,
   onSelect,
+  errorMessage,
   onResolved,
 }: {
   candidates: UnmatchedCandidate[];
   selectedCandidate: UnmatchedCandidate | null;
   onSelect: (candidateId: number) => void;
+  errorMessage: string | null;
   onResolved: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
-  const [category, setCategory] = useState("");
+  const form = useForm<ReviewQueueFormValues>({
+    resolver: zodResolver(reviewQueueSchema),
+    defaultValues: {
+      name: selectedCandidate?.ai_place_name ?? "",
+      latitude: "",
+      longitude: "",
+      category: selectedCandidate?.candidate_category ?? "",
+    },
+  });
+
+  useEffect(() => {
+    form.reset({
+      name: selectedCandidate?.ai_place_name ?? "",
+      latitude: "",
+      longitude: "",
+      category: selectedCandidate?.candidate_category ?? "",
+    });
+  }, [
+    form,
+    selectedCandidate?.id,
+    selectedCandidate?.ai_place_name,
+    selectedCandidate?.candidate_category,
+  ]);
 
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (values: ReviewQueueFormValues) => {
       if (!selectedCandidate) {
         throw new Error("candidate required");
       }
       return resolveCandidate(selectedCandidate.id, {
         action: "create_place",
-        correctedName: name || selectedCandidate.ai_place_name,
-        latitude: Number(latitude),
-        longitude: Number(longitude),
-        category: category || selectedCandidate.candidate_category || undefined,
+        correctedName: values.name,
+        latitude: Number(values.latitude),
+        longitude: Number(values.longitude),
+        category: values.category || selectedCandidate.candidate_category || undefined,
       });
     },
     onSuccess: () => {
-      setLatitude("");
-      setLongitude("");
-      setCategory("");
       onResolved();
     },
   });
@@ -225,17 +302,18 @@ function ReviewQueue({
       className="flex flex-col gap-4 border-b p-4 md:border-b-0 md:border-r"
     >
       <PanelHeader title="검수 큐" count={candidates.length} />
+      {errorMessage ? (
+        <p role="alert" className="text-xs text-destructive">
+          {errorMessage}
+        </p>
+      ) : null}
       <div className="flex max-h-56 flex-col gap-2 overflow-y-auto">
         {candidates.map((candidate) => (
           <button
             key={candidate.id}
             className="flex w-full flex-col gap-1 rounded-lg border p-3 text-left hover:bg-muted data-[selected=true]:border-primary"
             data-selected={candidate.id === selectedCandidate?.id}
-            onClick={() => {
-              onSelect(candidate.id);
-              setName(candidate.ai_place_name);
-              setCategory(candidate.candidate_category ?? "");
-            }}
+            onClick={() => onSelect(candidate.id)}
             type="button"
           >
             <span className="truncate text-sm font-medium">{candidate.ai_place_name}</span>
@@ -246,42 +324,66 @@ function ReviewQueue({
         ))}
       </div>
       {selectedCandidate ? (
-        <div className="flex flex-col gap-3 border-t pt-4">
-          <Input
-            aria-label="보정 장소명"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <Input
-              aria-label="보정 위도"
-              inputMode="decimal"
-              placeholder="위도"
-              value={latitude}
-              onChange={(event) => setLatitude(event.target.value)}
-            />
-            <Input
-              aria-label="보정 경도"
-              inputMode="decimal"
-              placeholder="경도"
-              value={longitude}
-              onChange={(event) => setLongitude(event.target.value)}
-            />
-          </div>
-          <Input
-            aria-label="보정 카테고리"
-            placeholder="카테고리"
-            value={category}
-            onChange={(event) => setCategory(event.target.value)}
-          />
+        <form
+          className="flex flex-col gap-3 border-t pt-4"
+          onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+        >
+          <FieldGroup>
+            <Field data-invalid={Boolean(form.formState.errors.name)}>
+              <FieldLabel htmlFor="review-place-name">장소명</FieldLabel>
+              <Input
+                id="review-place-name"
+                aria-label="보정 장소명"
+                aria-invalid={Boolean(form.formState.errors.name)}
+                {...form.register("name")}
+              />
+              <FieldError errors={[form.formState.errors.name]} />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field data-invalid={Boolean(form.formState.errors.latitude)}>
+                <FieldLabel htmlFor="review-latitude">위도</FieldLabel>
+                <Input
+                  id="review-latitude"
+                  aria-label="보정 위도"
+                  inputMode="decimal"
+                  placeholder="위도"
+                  aria-invalid={Boolean(form.formState.errors.latitude)}
+                  {...form.register("latitude")}
+                />
+                <FieldError errors={[form.formState.errors.latitude]} />
+              </Field>
+              <Field data-invalid={Boolean(form.formState.errors.longitude)}>
+                <FieldLabel htmlFor="review-longitude">경도</FieldLabel>
+                <Input
+                  id="review-longitude"
+                  aria-label="보정 경도"
+                  inputMode="decimal"
+                  placeholder="경도"
+                  aria-invalid={Boolean(form.formState.errors.longitude)}
+                  {...form.register("longitude")}
+                />
+                <FieldError errors={[form.formState.errors.longitude]} />
+              </Field>
+            </div>
+            <Field>
+              <FieldLabel htmlFor="review-category">카테고리</FieldLabel>
+              <Input
+                id="review-category"
+                aria-label="보정 카테고리"
+                placeholder="카테고리"
+                {...form.register("category")}
+              />
+            </Field>
+          </FieldGroup>
           <div className="grid grid-cols-2 gap-2">
             <Button
-              disabled={!latitude || !longitude || mutation.isPending}
-              onClick={() => mutation.mutate()}
+              type="submit"
+              disabled={mutation.isPending}
             >
               저장
             </Button>
             <Button
+              type="button"
               variant="outline"
               disabled={ignoreMutation.isPending}
               onClick={() => ignoreMutation.mutate(selectedCandidate.id)}
@@ -292,7 +394,7 @@ function ReviewQueue({
           {mutation.error ? (
             <p className="text-xs text-destructive">{mutation.error.message}</p>
           ) : null}
-        </div>
+        </form>
       ) : null}
     </section>
   );
@@ -302,10 +404,12 @@ function OperationsPanel({
   runs,
   audits,
   rustfs,
+  errorMessage,
 }: {
-  runs: Awaited<ReturnType<typeof listRuns>>;
-  audits: Awaited<ReturnType<typeof listAuditLogs>>;
-  rustfs: Awaited<ReturnType<typeof getRustfsStatus>> | undefined;
+  runs: CrawlRunSummary[];
+  audits: AuditLogSummary[];
+  rustfs: RustfsStatus | undefined;
+  errorMessage: string | null;
 }) {
   const failedRuns = runs.filter((run) => run.state === "failed").length;
   const totalObjects = rustfs?.assets.reduce((sum, asset) => sum + asset.count, 0) ?? 0;
@@ -313,6 +417,11 @@ function OperationsPanel({
   return (
     <section aria-label="운영 패널" className="flex flex-col gap-4 p-4">
       <PanelHeader title="운영" count={runs.length} />
+      {errorMessage ? (
+        <p role="alert" className="text-xs text-destructive">
+          {errorMessage}
+        </p>
+      ) : null}
       <div className="grid grid-cols-3 gap-2">
         <Metric label="실패" value={failedRuns.toString()} />
         <Metric label="객체" value={totalObjects.toString()} />

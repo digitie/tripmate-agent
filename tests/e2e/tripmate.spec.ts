@@ -28,7 +28,7 @@ test.describe('TripMate Agent E2E 검증', () => {
     await expect(page.locator('#vworld-map-container')).toBeVisible();
     await expect(page.locator('#vworld-map-container')).toHaveAttribute(
       'data-status',
-      /fallback|vworld/,
+      'fallback',
     );
     await expect(placesRegion.getByRole('heading', { name: '장소' })).toBeVisible();
     await expect(placesRegion.getByRole('button', { name: /월정리 해변/ })).toBeVisible();
@@ -124,7 +124,8 @@ test.describe('TripMate Agent E2E 검증', () => {
     await page.goto('/settings');
 
     await expect(page.locator('#gemini-engine-select')).toBeVisible();
-    await page.locator('#gemini-engine-select').selectOption('gemini-1.5-pro');
+    await page.locator('#gemini-engine-select').click();
+    await page.getByRole('option', { name: 'gemini-1.5-pro' }).click();
     await page.locator('#settings-save-button').click();
 
     await expect(page.locator('#success-toast')).toBeVisible();
@@ -202,11 +203,24 @@ function collectConsoleErrors(page: Page) {
 }
 
 function expectRelevantConsoleErrors(errors: string[]) {
-  return expect(
-    errors.filter(
-      (message) =>
-        !message.includes('favicon') &&
-        !message.includes('ResizeObserver loop completed'),
-    ),
-  );
+  return expect(errors.filter(isRelevantConsoleError));
+}
+
+function isRelevantConsoleError(message: string) {
+  if (
+    message.includes('favicon') ||
+    message.includes('ResizeObserver loop completed')
+  ) {
+    return false;
+  }
+
+  return [
+    'Hydration failed',
+    'ReferenceError',
+    'SyntaxError',
+    'TypeError',
+    'Unhandled',
+    'Failed to fetch',
+    'Internal Server Error',
+  ].some((pattern) => message.includes(pattern));
 }

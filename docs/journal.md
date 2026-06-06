@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-06-05: T-025 PR #6~19 프론트엔드·E2E·문서 리뷰 반영
+
+- **담당자**: Codex
+- **작업 내용**:
+  - **프론트엔드 class 호환성 보정**: shadcn/ui primitive에 남아 있던 Tailwind v4 계열 selector를 Tailwind v3에서 해석 가능한 class로 정리.
+  - **설정·검수 폼 정리**: 설정 페이지와 매칭 실패 검수 큐를 React Hook Form/Zod 기반 검증과 TanStack Query mutation 흐름으로 맞추고, API 오류 메시지는 HTTP status와 길이 제한을 포함하도록 보강.
+  - **지도 fallback 개선**: VWorld 키가 없는 E2E/로컬 환경에서도 fallback overlay와 접근성 region이 보이도록 하고, marker 재생성과 선택 장소 이동 효과를 분리.
+  - **E2E 안정화**: Python 3.10 호환 `timezone.utc`를 사용하고, 테스트 frontend는 VWorld 키를 비워 외부 타일 호출을 차단. shadcn Select는 실제 클릭/option 선택 흐름으로 검증하고, 관련 console error만 실패로 판단하도록 필터링.
+  - **ADR-20 보강**: sqlite-vec/PostGIS/PgQueuer 전환 기준을 관측 가능한 수치 트리거로 구체화하고, ADR-12/ADR-17 후속 갱신 필요성을 명시.
+- **다음 작업**:
+  - PR 생성, 머지 후 전체 live test를 진행한다.
+
+---
+
 ## 2026-06-05: T-024 PR #6~19 ETL·동영상·지오코딩 리뷰 반영
 
 - **담당자**: Codex
@@ -69,8 +83,8 @@
 - **담당자**: Codex
 - **작업 내용**:
   - **의미론적 검색 검토**: sqlite-vec와 SQLite Vec1의 virtual table 기반 vector search를 검토. 현재 검색 품질 병목이 확인되지 않았고 extension 안정성·Windows/Docker 검증 비용이 남아 있어 기본 의존성 도입은 보류.
-  - **PostgreSQL/PostGIS 전환 기준 수립**: 확정 장소 100,000건, 영상-장소 매핑 1,000,000건, 반경 검색 p95 500ms 초과, SQLite write lock 반복을 전환 검토 트리거로 문서화. 전환 시 변경 범위는 `app.core.spatial`과 `app.services.place_service` 중심으로 제한.
-  - **멀티 워커 후보 정리**: 현재는 APScheduler 단일 실행자를 유지. PostgreSQL 전환 이후 backlog가 5분 이상 지속되거나 단일 worker SLA를 못 맞추면 PgQueuer를 1순위로 검토. APScheduler + PostgreSQL advisory lock은 여러 scheduler 프로세스 중 단일 leader 보장이 필요할 때만 보조 후보로 둠.
+  - **PostgreSQL/PostGIS 전환 기준 수립**: 확정 장소 100,000건, 영상-장소 매핑 1,000,000건, 반경 검색 p95 500ms 초과, 최근 7일 `database is locked` 재시도 10회 이상을 전환 검토 트리거로 문서화. 전환 시 변경 범위는 `app.core.spatial`과 `app.services.place_service` 중심으로 제한.
+  - **멀티 워커 후보 정리**: 현재는 APScheduler 단일 실행자를 유지. PostgreSQL 전환 이후 pending 대기 작업 최고 연령 5분 초과가 3회 연속 관측되거나 단일 worker가 24시간 내 신규 영상 처리량을 소화하지 못하면 PgQueuer를 1순위로 검토. APScheduler + PostgreSQL advisory lock은 여러 scheduler 프로세스 중 단일 leader 보장이 필요할 때만 보조 후보로 둠.
   - **ADR 추가**: `docs/decisions.md`에 ADR-20을 추가하고, `docs/architecture.md`의 대규모 전환 후보 표를 수치 트리거 중심으로 갱신.
   - **wrapper 최소화 유지**: 의미론적 검색이나 queue 전환도 실제 병목 전까지 optional feature 또는 별도 ADR로만 다루며, 선제 adapter/wrapper 계층은 추가하지 않는 원칙을 명시.
 - **다음 작업**:

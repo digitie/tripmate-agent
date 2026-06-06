@@ -35,7 +35,7 @@ const child = spawn(
     env: {
       ...process.env,
       NEXT_PUBLIC_API_BASE_URL: `http://127.0.0.1:${backendPort}`,
-      NEXT_PUBLIC_VWORLD_SERVICE_KEY: process.env.NEXT_PUBLIC_VWORLD_SERVICE_KEY ?? "",
+      NEXT_PUBLIC_VWORLD_SERVICE_KEY: "",
     },
     stdio: "inherit",
   },

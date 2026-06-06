@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import delete
 
@@ -60,6 +60,9 @@ async def main() -> None:
             api_source="vworld",
             is_geocoded=True,
         )
+        session.add_all([video, place])
+        await session.flush()
+
         candidate = ExtractedPlaceCandidate(
             video_id="e2e-video-1",
             source_text="성산 일출봉 근처 카페",
@@ -77,13 +80,13 @@ async def main() -> None:
             state=RunState.DONE,
             progress=1.0,
             result_json=json.dumps({"inserted": 1}, ensure_ascii=False),
-            finished_at=datetime.now(UTC),
+            finished_at=datetime.now(timezone.utc),
         )
         audit = AuditLog(
             actor_type="mcp",
             action="place.correct",
             target_type="travel_place",
-            target_id="1",
+            target_id=str(place.place_id),
             payload_json=json.dumps({"name": "월정리 해변"}, ensure_ascii=False),
         )
         asset = MediaAsset(
@@ -98,7 +101,7 @@ async def main() -> None:
             retention_policy="infinite",
         )
 
-        session.add_all([video, place, candidate, run, audit, asset])
+        session.add_all([candidate, run, audit, asset])
         await session.commit()
 
 
