@@ -73,8 +73,13 @@ def test_select_stream_url_rejects_audio_only_formats():
     assert select_stream_url(info) is None
 
 
-def test_extract_jpeg_with_ffmpeg_uses_input_seeking():
+def test_extract_jpeg_with_ffmpeg_uses_input_seeking(monkeypatch):
     captured = {}
+
+    class SettingsStub:
+        FFMPEG_PATH = "ffmpeg"
+
+    monkeypatch.setattr(frame_extraction, "get_settings", lambda: SettingsStub())
 
     def runner(cmd, **kwargs):
         captured["cmd"] = cmd
@@ -94,6 +99,24 @@ def test_extract_jpeg_with_ffmpeg_uses_input_seeking():
     assert captured["kwargs"]["stderr"] == subprocess.PIPE
 
 
+def test_extract_jpeg_with_ffmpeg_uses_configured_binary(monkeypatch):
+    captured = {}
+
+    class SettingsStub:
+        FFMPEG_PATH = r"F:\dev\tripmate-agent\.local\ffmpeg\bin\ffmpeg.exe"
+
+    monkeypatch.setattr(frame_extraction, "get_settings", lambda: SettingsStub())
+
+    def runner(cmd, **kwargs):
+        captured["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"\xff\xd8jpeg", stderr=b"")
+
+    data = extract_jpeg_with_ffmpeg("https://stream", 10, runner=runner)
+
+    assert data.startswith(b"\xff\xd8")
+    assert captured["cmd"][0] == SettingsStub.FFMPEG_PATH
+
+
 def test_extract_jpeg_with_ffmpeg_raises_on_failure():
     def runner(cmd, **kwargs):
         return subprocess.CompletedProcess(cmd, 1, stdout=b"", stderr=b"boom")
@@ -107,6 +130,19 @@ def test_extract_jpeg_with_ffmpeg_wraps_timeout():
         raise subprocess.TimeoutExpired(cmd, timeout=kwargs["timeout"])
 
     with pytest.raises(FrameExtractionError, match="타임아웃"):
+        extract_jpeg_with_ffmpeg("https://stream", 0, runner=runner)
+
+
+def test_extract_jpeg_with_ffmpeg_wraps_missing_binary(monkeypatch):
+    class SettingsStub:
+        FFMPEG_PATH = r"F:\missing\ffmpeg.exe"
+
+    monkeypatch.setattr(frame_extraction, "get_settings", lambda: SettingsStub())
+
+    def runner(cmd, **kwargs):
+        raise FileNotFoundError(cmd[0])
+
+    with pytest.raises(FrameExtractionError, match="실행 파일을 찾을 수 없습니다"):
         extract_jpeg_with_ffmpeg("https://stream", 0, runner=runner)
 
 

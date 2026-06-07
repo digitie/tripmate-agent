@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-06-07: T-030 Windows FFmpeg 자동 준비 및 VWorld 지도 축소 안정화
+
+- **담당자**: Codex
+- **작업 내용**:
+  - **FFmpeg 자동 준비**: `scripts\ensure-windows-ffmpeg.ps1`을 추가해 Windows live 시작 전 프로젝트 로컬 `.local\ffmpeg`에 지정된 gyan.dev Windows 빌드가 없으면 내려받고 압축을 풀도록 구성.
+  - **환경변수 주입**: `.env`의 `FFMPEG_PATH`, `FFPROBE_PATH`를 갱신하고, `scripts\start-windows-live.ps1`이 API 프로세스 시작 전에 `ffmpeg -version`, `ffprobe -version`을 확인한 뒤 같은 경로를 프로세스 환경변수로 넘기도록 보강.
+  - **Docker 경로 분리**: Docker Compose에서는 Windows 호스트 경로가 컨테이너에 들어가지 않도록 `DOCKER_FFMPEG_PATH`, `DOCKER_FFPROBE_PATH`를 컨테이너 내부 `FFMPEG_PATH`, `FFPROBE_PATH`로 주입.
+  - **지도 축소 오류 보정**: VWorld WMTS source에 대한민국 tile bounds와 최소 zoom을 지정하고 MapLibre 지도에도 `minZoom`, `maxBounds`를 설정해 대한민국 범위를 벗어난 tile 요청을 막음.
+  - **Windows E2E 기동 보강**: Playwright webServer와 E2E frontend 시작 스크립트가 `node`/`npm` PATH에 의존하지 않고 현재 Node 실행 파일과 Next.js CLI를 직접 사용하도록 정리.
+- **다음 작업**:
+  - Windows live 서버 재기동 후 Playwright로 지도 축소와 console error 재현 여부를 확인한다.
+
+---
+
 ## 2026-06-07: T-029 Windows live test 후속 보완
 
 - **담당자**: Codex

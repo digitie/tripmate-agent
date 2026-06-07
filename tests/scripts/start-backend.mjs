@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -62,12 +62,39 @@ function resolvePython() {
 }
 
 function forwardSignals(processToStop) {
+  let stopping = false;
+
+  function stop(signal = "SIGTERM") {
+    if (stopping) {
+      return;
+    }
+    stopping = true;
+
+    if (process.platform === "win32" && processToStop.pid) {
+      spawnSync("taskkill", ["/pid", String(processToStop.pid), "/t", "/f"], {
+        stdio: "ignore",
+      });
+      process.exit(0);
+    }
+
+    processToStop.kill(signal);
+    setTimeout(() => {
+      if (!processToStop.killed) {
+        processToStop.kill("SIGKILL");
+      }
+      process.exit(0);
+    }, 3_000).unref();
+  }
+
   for (const signal of ["SIGINT", "SIGTERM"]) {
     process.on(signal, () => {
-      processToStop.kill(signal);
+      stop(signal);
     });
   }
   processToStop.on("exit", (code, signal) => {
+    if (stopping) {
+      return;
+    }
     if (signal) {
       process.kill(process.pid, signal);
       return;

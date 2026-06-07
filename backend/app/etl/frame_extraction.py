@@ -19,6 +19,7 @@ from typing import Any, Callable, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.etl import media_store
 from app.models import AssetType, MediaAsset, VideoPlaceMapping
 
@@ -167,8 +168,9 @@ def extract_jpeg_with_ffmpeg(
     runner: Callable[..., subprocess.CompletedProcess[bytes]] = subprocess.run,
 ) -> bytes:
     """FFmpeg Input Seeking으로 JPEG 한 장을 stdout에서 읽는다."""
+    ffmpeg_path = get_settings().FFMPEG_PATH or "ffmpeg"
     cmd = [
-        "ffmpeg",
+        ffmpeg_path,
         "-hide_banner",
         "-loglevel",
         "error",
@@ -192,6 +194,10 @@ def extract_jpeg_with_ffmpeg(
             check=False,
             timeout=timeout,
         )
+    except FileNotFoundError as exc:
+        raise FrameExtractionError(
+            f"FFmpeg 실행 파일을 찾을 수 없습니다: {ffmpeg_path}"
+        ) from exc
     except subprocess.TimeoutExpired as exc:
         raise FrameExtractionError("FFmpeg 대표 프레임 추출 타임아웃") from exc
     if completed.returncode != 0:
