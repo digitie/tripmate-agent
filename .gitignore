@@ -60,3 +60,6 @@ Thumbs.db
 
 # CodeGraph
 .codegraph/
+
+# Local tools downloaded for Windows live runs
+.local/

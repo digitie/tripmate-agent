@@ -12,24 +12,15 @@ const normalizeNextEnvScript = path.join(
 );
 const backendPort = process.env.E2E_BACKEND_PORT ?? "18080";
 const frontendPort = process.env.E2E_FRONTEND_PORT ?? "13100";
-const command = process.platform === "win32" ? "cmd.exe" : "npm";
-const args =
-  process.platform === "win32"
-    ? [
-        "/d",
-        "/s",
-        "/c",
-        `npm run dev -- --hostname 127.0.0.1 --port ${frontendPort}`,
-      ]
-    : [
-        "run",
-        "dev",
-        "--",
-        "--hostname",
-        "127.0.0.1",
-        "--port",
-        frontendPort,
-      ];
+const command = process.execPath;
+const args = [
+  path.join(frontendDir, "node_modules", "next", "dist", "bin", "next"),
+  "dev",
+  "--hostname",
+  "127.0.0.1",
+  "--port",
+  frontendPort,
+];
 
 const child = spawn(
   command,
@@ -45,21 +36,55 @@ const child = spawn(
   },
 );
 
+let stopping = false;
+let normalized = false;
+
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
-    child.kill(signal);
+    stopChild(signal);
   });
 }
 
 function normalizeNextEnv() {
+  if (normalized) {
+    return;
+  }
+  normalized = true;
   spawnSync(process.execPath, [normalizeNextEnvScript], {
     cwd: frontendDir,
     stdio: "inherit",
   });
 }
 
+function stopChild(signal = "SIGTERM") {
+  if (stopping) {
+    return;
+  }
+  stopping = true;
+
+  if (process.platform === "win32" && child.pid) {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+      stdio: "ignore",
+    });
+    normalizeNextEnv();
+    process.exit(0);
+  }
+
+  child.kill(signal);
+  setTimeout(() => {
+    if (!child.killed) {
+      child.kill("SIGKILL");
+    }
+    normalizeNextEnv();
+    process.exit(0);
+  }, 3_000).unref();
+}
+
 child.on("exit", (code, signal) => {
   normalizeNextEnv();
+  if (stopping) {
+    return;
+  }
   if (signal) {
     process.kill(process.pid, signal);
     return;

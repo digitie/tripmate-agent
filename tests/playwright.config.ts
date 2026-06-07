@@ -7,6 +7,7 @@ const frontendPort = process.env.E2E_FRONTEND_PORT ?? '13100';
 const backendPort = process.env.E2E_BACKEND_PORT ?? '18080';
 const baseURL = process.env.E2E_FRONTEND_URL ?? `http://127.0.0.1:${frontendPort}`;
 const backendURL = process.env.E2E_API_BASE_URL ?? `http://127.0.0.1:${backendPort}`;
+const nodeCommand = quoteForShell(process.execPath);
 
 export default defineConfig({
   testDir: './e2e',
@@ -30,16 +31,20 @@ export default defineConfig({
 
   webServer: [
     {
-      command: 'node ./scripts/start-backend.mjs',
+      command: `${nodeCommand} ./scripts/start-backend.mjs`,
       url: `${backendURL}/health`,
       timeout: 120_000,
       reuseExistingServer: !process.env.CI,
     },
     {
-      command: 'node ./scripts/start-frontend.mjs',
+      command: `${nodeCommand} ./scripts/start-frontend.mjs`,
       url: baseURL,
       timeout: 120_000,
       reuseExistingServer: !process.env.CI,
     },
   ],
 });
+
+function quoteForShell(value: string) {
+  return `"${value.replace(/"/g, '\\"')}"`;
+}

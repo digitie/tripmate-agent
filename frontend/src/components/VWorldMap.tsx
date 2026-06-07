@@ -12,6 +12,12 @@ type VWorldMapProps = {
 };
 
 const KOREA_CENTER: [number, number] = [127.8, 36.4];
+const KOREA_TILE_BOUNDS: [number, number, number, number] = [124.0, 32.0, 132.5, 39.8];
+const KOREA_MAX_BOUNDS: [[number, number], [number, number]] = [
+  [123.0, 31.0],
+  [133.5, 40.8],
+];
+const VWORLD_MIN_ZOOM = 6;
 
 export function VWorldMap({
   places,
@@ -31,6 +37,8 @@ export function VWorldMap({
       style: buildVWorldStyle(VWORLD_SERVICE_KEY),
       center: KOREA_CENTER,
       zoom: 6.2,
+      minZoom: VWORLD_MIN_ZOOM,
+      maxBounds: KOREA_MAX_BOUNDS,
       attributionControl: false,
     });
     mapRef.current.addControl(new maplibregl.NavigationControl(), "top-right");
@@ -123,6 +131,8 @@ function buildVWorldStyle(key: string): maplibregl.StyleSpecification {
           `https://api.vworld.kr/req/wmts/1.0.0/${key}/Base/{z}/{y}/{x}.png`,
         ],
         tileSize: 256,
+        minzoom: VWORLD_MIN_ZOOM,
+        bounds: KOREA_TILE_BOUNDS,
         attribution: "VWorld",
       },
     },

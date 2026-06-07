@@ -63,6 +63,38 @@ function Resolve-NodeExe {
     throw "Node.js 실행 파일을 찾을 수 없습니다. Node.js 20+ 설치 경로 또는 PATH를 확인하세요."
 }
 
+function Escape-PowerShellSingleQuotedValue {
+    param([string]$Value)
+
+    return $Value.Replace("'", "''")
+}
+
+function Test-NativeCommand {
+    param(
+        [string]$Path,
+        [string]$Argument
+    )
+
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
+    try {
+        $process = Start-Process `
+            -FilePath $Path `
+            -ArgumentList @($Argument) `
+            -Wait `
+            -PassThru `
+            -NoNewWindow `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath
+        if ($process.ExitCode -ne 0) {
+            throw "외부 실행 파일 확인 실패: $Path $Argument (exit=$($process.ExitCode))"
+        }
+    }
+    finally {
+        Remove-Item $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Stop-PortOwner -Port $ApiPort
 Stop-PortOwner -Port $WebPort
 
@@ -86,6 +118,10 @@ else {
 $apiUrl = "http://127.0.0.1:$ApiPort"
 $webUrl = "http://127.0.0.1:$WebPort"
 $vworldKey = Read-DotEnvValue -Name "NEXT_PUBLIC_VWORLD_SERVICE_KEY"
+$ffmpegInfoJson = & (Join-Path $Root "scripts\ensure-windows-ffmpeg.ps1") -UpdateEnvFile
+$ffmpegInfo = $ffmpegInfoJson | ConvertFrom-Json
+$ffmpegPath = [string]$ffmpegInfo.FFMPEG_PATH
+$ffprobePath = [string]$ffmpegInfo.FFPROBE_PATH
 $nodePath = Resolve-NodeExe
 $nextCliPath = Join-Path $Root "frontend\node_modules\next\dist\bin\next"
 if (-not (Test-Path $nextCliPath)) {
@@ -94,9 +130,14 @@ if (-not (Test-Path $nextCliPath)) {
 
 $env:NEXT_PUBLIC_API_BASE_URL = $apiUrl
 $env:CORS_ALLOW_ORIGINS = "http://localhost:$WebPort,http://127.0.0.1:$WebPort"
+$env:FFMPEG_PATH = $ffmpegPath
+$env:FFPROBE_PATH = $ffprobePath
 if ($vworldKey) {
     $env:NEXT_PUBLIC_VWORLD_SERVICE_KEY = $vworldKey
 }
+
+Test-NativeCommand -Path $ffmpegPath -Argument "-version"
+Test-NativeCommand -Path $ffprobePath -Argument "-version"
 
 $frontendEnv = @(
     "`$env:NEXT_PUBLIC_API_BASE_URL = '$apiUrl'"
@@ -107,8 +148,15 @@ if ($vworldKey) {
 }
 $frontendEnvBlock = $frontendEnv -join "`r`n"
 
+$backendEnv = @(
+    "`$env:FFMPEG_PATH = '$(Escape-PowerShellSingleQuotedValue -Value $ffmpegPath)'",
+    "`$env:FFPROBE_PATH = '$(Escape-PowerShellSingleQuotedValue -Value $ffprobePath)'"
+)
+$backendEnvBlock = $backendEnv -join "`r`n"
+
 $backendCommand = @"
 Set-Location '$Root'
+$backendEnvBlock
 $pythonCommand -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port $ApiPort
 "@
 
@@ -123,3 +171,4 @@ Start-Process powershell -ArgumentList "-NoProfile", "-NoExit", "-Command", $fro
 
 Write-Host "TripMate API: $apiUrl"
 Write-Host "TripMate Web: $webUrl"
+Write-Host "FFmpeg: $ffmpegPath"
