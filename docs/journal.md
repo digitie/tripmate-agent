@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-06-08: T-044 keyword/playlist 증분 수집 보강
+
+- **담당자**: Codex
+- **작업 내용**:
+  - **source target watermark 사용**: `source_targets.last_crawled_at` 조회·갱신 helper를 추가하고, 수집 성공 후 keyword/channel/playlist target의 마지막 성공 크롤 시각을 기록하도록 연결.
+  - **keyword 증분 검색**: keyword harvest에서 이전 성공 시각을 YouTube `search.list`의 `publishedAfter`로 전달해 매 실행 full-rescan을 줄이도록 변경.
+  - **playlist 증분 중단**: playlist harvest에서 항목의 영상 공개 시각이 target watermark 이하가 되는 지점에서 pagination을 중단하도록 변경.
+  - **기존 channel 경로 유지**: channel harvest는 기존처럼 DB의 최신 영상 `published_at` watermark로 uploads playlist pagination을 중단하고, source target crawl 시각도 함께 갱신.
+  - **문서 갱신**: 아키텍처와 ADR, PR #30 추적 문서를 target별 watermark 기준으로 갱신.
+  - **검증**: keyword `publishedAfter` 전달과 playlist pagination 중단 테스트 추가. `backend/tests/test_etl_pipeline.py`, backend 전체 pytest, `python3 -m compileall backend/app backend/tests`, `git diff --check` 통과.
+- **다음 작업**:
+  - PR #30 P2-3 `next-env.d.ts` 생성물 추적 정리를 T-045로 승격해 처리한다.
+
+---
+
 ## 2026-06-08: T-043 장소 export 직렬화 안정화
 
 - **담당자**: Codex

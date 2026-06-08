@@ -223,7 +223,7 @@ ETL 구현 범위를 다음 원칙으로 보강한다.
 - YouTube 검색과 메타데이터 수집은 ADR-11에 따라 공식 YouTube Data API v3를 우선 사용하고, `yt-dlp`는 공식 대안이 부족한 자막 추출·대표 프레임 스트림 확보 구간에만 격리한다.
 - 자막 전사는 `youtube-transcript-api` → `yt-dlp` 자막 추출 → `faster-whisper` 순서의 3단계 폴백을 둔다.
 - 모든 신규 영상은 `video_id` 기준 캐시로 멱등 처리한다.
-- 채널별 워터마크와 적응형 크롤 주기로 호출량을 줄인다.
+- 키워드·채널·재생목록 target별 watermark와 적응형 크롤 주기로 호출량을 줄인다.
 - 작업 상태, heartbeat, retry_count, last_error를 DB에 기록한다.
 - 지오코딩과 수집 단계 모두 429 응답에 지수 백오프와 지터를 적용한다.
 

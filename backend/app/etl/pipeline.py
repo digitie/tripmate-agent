@@ -81,6 +81,7 @@ async def _collect_keyword_video_ids(
     queries: list[str],
     *,
     max_videos: int,
+    published_after: datetime | None = None,
     status_reporter: StatusReporter | None = None,
 ) -> list[str]:
     """여러 검색어로 검색해 중복 없는 video_id를 모은다."""
@@ -95,7 +96,11 @@ async def _collect_keyword_video_ids(
             f'YouTube에서 "{query}" 검색을 실행 중입니다.',
             0.28 + (0.22 * index / total),
         )
-        data = await client.search_list(query=query, max_results=max_videos)
+        data = await client.search_list(
+            query=query,
+            max_results=max_videos,
+            published_after=_youtube_datetime(published_after),
+        )
         found_in_query = 0
         for item in data.get("items", []):
             vid = item.get("id", {}).get("videoId")
@@ -139,6 +144,13 @@ def _as_utc_aware(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value
+
+
+def _youtube_datetime(value: datetime | None) -> str | None:
+    value = _as_utc_aware(value)
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 async def _collect_playlist_video_ids(
@@ -248,10 +260,16 @@ async def run_harvest(
     if playlist_id:
         target_type = "playlist"
         target_id = playlist_id
+        watermark = _as_utc_aware(
+            await ingest_service.get_source_target_watermark(
+                session, target_type=target_type, source_value=playlist_id
+            )
+        )
         video_ids = await _collect_playlist_video_ids(
             client,
             playlist_id,
             max_videos=max_videos,
+            stop_at_or_before=watermark,
             status_reporter=status_reporter,
         )
     elif channel_id:
@@ -283,10 +301,16 @@ async def run_harvest(
             0.24,
         )
         queries = [seed_keyword, *derived]
+        watermark = _as_utc_aware(
+            await ingest_service.get_source_target_watermark(
+                session, target_type=target_type, source_value=seed_keyword
+            )
+        )
         video_ids = await _collect_keyword_video_ids(
             client,
             queries,
             max_videos=max_videos,
+            published_after=watermark,
             status_reporter=status_reporter,
         )
 
@@ -320,6 +344,13 @@ async def run_harvest(
         0.78,
     )
     summary = await ingest_service.ingest_candidates(session, candidates)
+    if target_id:
+        await ingest_service.mark_source_target_crawled(
+            session,
+            target_type=target_type,
+            source_value=target_id,
+            crawled_at=now,
+        )
     await _report(
         status_reporter,
         f"동영상 적재를 완료했습니다. 신규 {summary['inserted']}개, 갱신 {summary['updated']}개입니다.",
