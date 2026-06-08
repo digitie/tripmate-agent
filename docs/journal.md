@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-06-08: T-053 export 파일명 개선
+
+- **담당자**: Codex
+- **작업 내용**:
+  - **파일명 메타데이터 추가**: `/api/destinations/export`의 응답 파일명에 선택/전체 범위, 실제 내보낸 장소 수, 정렬 기준, UTC timestamp를 포함.
+  - **직렬화 경계 유지**: `place_export_service`의 형식별 직렬화는 유지하고, route가 요청 필터 정보를 알고 있는 지점에서 `Content-Disposition` 파일명을 보강.
+  - **회귀 테스트 추가**: 선택 export와 전체 export의 파일명 패턴을 API 테스트에서 검증.
+  - **PR #30 추적 갱신**: `docs/pr-review-2026-06.md`의 P3-3 항목을 T-053 후속 해소로 표시.
+  - **검증**: 관련 API pytest 2건, backend 전체 pytest 152건, backend `compileall`, `git diff --check` 통과.
+- **다음 작업**:
+  - PR #30 P3-4 코드 위생 정리를 T-054로 처리한다.
+
+---
+
 ## 2026-06-08: T-052 FFprobe/FFmpeg 환경변수 범위 정리
 
 - **담당자**: Codex

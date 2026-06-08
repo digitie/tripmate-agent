@@ -97,7 +97,8 @@
   - 후속 처리: T-051에서 남은 P3-2~P3-5 항목을 `docs/tasks.md` 대기 작업 T-052~T-055로 승격하고, `CLAUDE.md`의 다음 착수 대상도 T-052로 맞췄다.
 - [x] **P3-2.** `FFPROBE_PATH`가 config/.env/compose에 추가됐으나 백엔드 코드 미사용; frontend compose 서비스에 ffmpeg env 불필요 주입(#29). (`T-052`에서 후속 해소)
   - 후속 처리: T-052에서 backend runtime 설정과 Compose Python 공통 env는 `FFMPEG_PATH`만 유지하고, frontend compose 서비스의 FFmpeg/FFprobe env 주입을 제거했다. `FFPROBE_PATH`는 Windows live 사전 검증에서 `ffprobe -version`을 확인하기 위한 스크립트 관리 값으로만 문서화했다.
-- [ ] **P3-3.** export 파일명 고정(`tripmate-places.*`) → 타임스탬프/필터 반영(#27).
+- [x] **P3-3.** export 파일명 고정(`tripmate-places.*`) → 타임스탬프/필터 반영(#27). (`T-053`에서 후속 해소)
+  - 후속 처리: T-053에서 `/api/destinations/export` 응답 파일명을 `tripmate-places-{selected|all}-{내보낸개수}-sort-{정렬}-{UTC timestamp}.{확장자}` 형식으로 바꿔 선택/전체 범위, 실제 export 개수, 정렬 기준, 생성 시각을 반영했다.
 - [ ] **P3-4.** import 정렬, FK `ondelete` 명시, `TimestampMixin` 일관성 등 코드 위생(#7 외).
 - [ ] **P3-5.** `& py -3.10` 마이너 고정은 3.11/3.12-only 호스트에서 폴백 실패(정책은 "3.10+")(#26).
 

@@ -12,7 +12,6 @@
 
 ## 대기 (우선순위 순)
 
-- [ ] **T-053**: PR #30 P3-3 export 파일명 개선 — 고정 파일명 `tripmate-places.*` 대신 타임스탬프와 필터 정보를 반영한 export 파일명으로 개선.
 - [ ] **T-054**: PR #30 P3-4 코드 위생 정리 — import 정렬, FK `ondelete` 명시, `TimestampMixin` 일관성 등 리뷰에서 남은 낮은 우선순위 코드 위생 항목을 확인하고 필요한 범위만 정리.
 - [ ] **T-055**: PR #30 P3-5 Windows Python launcher fallback 정리 — `& py -3.10` 마이너 고정이 Python 3.11/3.12-only Windows 호스트에서 실패할 수 있어 "3.10+" 정책에 맞는 fallback으로 정리.
 
@@ -20,6 +19,7 @@
 
 ## 완료
 
+- [x] **T-053**: PR #30 P3-3 export 파일명 개선 — `/api/destinations/export`의 `Content-Disposition` 파일명을 고정 `tripmate-places.*`에서 `tripmate-places-{selected|all}-{내보낸개수}-sort-{정렬}-{UTC timestamp}.{확장자}` 형식으로 변경. 선택/전체 export 범위, 실제 내보낸 장소 수, 정렬 기준, 생성 시각을 파일명에 반영한다. API Content-Disposition 회귀 테스트 추가. 관련 API pytest 2건, backend 전체 pytest 152건, compileall 통과. (2026-06-08)
 - [x] **T-052**: PR #30 P3-2 FFprobe/FFmpeg 환경변수 사용 범위 정리 — backend runtime 설정과 Docker Compose Python 서비스는 실제 대표 프레임 추출 코드가 사용하는 `FFMPEG_PATH`만 유지하고, `FFPROBE_PATH` runtime 주입을 제거. frontend compose 서비스의 FFmpeg/FFprobe env 주입도 제거했다. `FFPROBE_PATH`는 `scripts/ensure-windows-ffmpeg.ps1`과 Windows live 사전 검증에서 `ffprobe -version`을 확인하기 위한 스크립트 관리 값으로만 문서화. Docker Compose config, PowerShell parser, frame extraction pytest 15건, backend compileall 통과. (2026-06-08)
 - [x] **T-051**: PR #30 P3-1 문서 상태 불일치 정리 — `docs/pr-review-2026-06.md`에 남은 P3 후속 항목을 `docs/tasks.md`의 대기 작업 T-052~T-055로 승격해 `tasks.md`의 "대기 없음" 상태와 PR #30 추적 문서가 어긋나지 않도록 정리. `CLAUDE.md`의 다음 착수 대상도 T-052로 갱신하고 P3-1 추적 항목을 완료 표시. 문서 diff 공백 검사 통과. (2026-06-08)
 - [x] **T-050**: PR #30 P2-8 `_names_compatible` 부분일치 기준 축소 — 지오코딩 근접 중복 재사용 시 이름 exact match는 유지하되, 포함 관계 alias는 짧은 쪽이 4자 이상이고 긴 쪽 대비 60% 이상인 경우에만 허용하도록 변경. `카페` ↔ `월정리카페`, `성산` ↔ `성산일출봉` 같은 짧은 부분명은 기존 장소 자동 재사용 대신 `nearby_place_name_mismatch` 검수 대기로 남긴다. 짧은 부분명 거부와 구체적 alias 허용 테스트 추가. geocode service pytest 8건, backend 전체 pytest 152건, compileall 통과. (2026-06-08)
