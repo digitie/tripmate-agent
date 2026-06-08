@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
-from app.etl.geocode_service import apply_geocode_to_candidate
+from app.etl.geocode_service import _names_compatible, apply_geocode_to_candidate
 from app.etl.geocoding import GeocodeCandidate, GeocodeDecision
 from app.models import (
     ExtractedPlaceCandidate,
@@ -109,6 +109,38 @@ async def test_apply_matched_nearby_name_mismatch_needs_review(session):
     refreshed = await session.get(ExtractedPlaceCandidate, candidate.id)
     assert refreshed.match_status == MatchStatus.NEEDS_REVIEW
     assert refreshed.review_note == "nearby_place_name_mismatch"
+
+
+async def test_apply_matched_nearby_short_partial_name_needs_review(session):
+    existing = TravelPlace(name="월정리 카페", latitude=33.5563, longitude=126.7958, is_geocoded=True)
+    session.add(existing)
+    await session.commit()
+
+    candidate = await _make_candidate(session, name="카페")
+    decision = GeocodeDecision(
+        status="matched",
+        candidate=GeocodeCandidate(latitude=33.55635, longitude=126.79585),
+        confidence=1.0,
+        reason="single_result",
+        candidate_count=1,
+    )
+    place = await apply_geocode_to_candidate(session, candidate, decision)
+
+    assert place is None
+    refreshed = await session.get(ExtractedPlaceCandidate, candidate.id)
+    assert refreshed.match_status == MatchStatus.NEEDS_REVIEW
+    assert refreshed.review_note == "nearby_place_name_mismatch"
+
+
+def test_names_compatible_rejects_short_partial_names():
+    assert _names_compatible("월정리 카페", "월정리카페")
+    assert not _names_compatible("카페", "월정리카페")
+    assert not _names_compatible("성산", "성산일출봉")
+
+
+def test_names_compatible_allows_specific_contained_aliases():
+    assert _names_compatible("월정리 카페", "월정리 카페 본점")
+    assert _names_compatible("감천문화마을", "부산 감천문화마을")
 
 
 async def test_apply_uses_vworld_for_address_enrichment(session):

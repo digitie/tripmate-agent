@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-06-08: T-050 지오코딩 이름 호환 기준 축소
+
+- **담당자**: Codex
+- **작업 내용**:
+  - **짧은 부분명 자동 재사용 차단**: `_names_compatible`의 포함 관계 alias 조건을 짧은 쪽 4자 이상, 긴 쪽 대비 60% 이상으로 좁혀 `카페` ↔ `월정리카페` 같은 false-positive를 막음.
+  - **구체적 alias 유지**: exact match는 그대로 허용하고, `월정리카페` ↔ `월정리카페본점`, `감천문화마을` ↔ `부산 감천문화마을`처럼 충분히 구체적인 포함 관계는 유지.
+  - **회귀 테스트 추가**: 짧은 부분명 근접 후보는 `nearby_place_name_mismatch`로 검수 대기에 남고, 구체적 alias는 호환되는지 검증.
+  - **PR #30 추적 갱신**: `docs/pr-review-2026-06.md`의 P2-8 항목을 T-050 후속 해소로 표시.
+  - **검증**: geocode service pytest 8건, backend 전체 pytest 152건, backend `compileall`, `git diff --check` 통과.
+- **다음 작업**:
+  - PR #30 P3-1 문서 상태 불일치 정리를 T-051로 승격해 처리한다.
+
+---
+
 ## 2026-06-08: T-049 Gemini engine 설정 단일 출처 정리
 
 - **담당자**: Codex
