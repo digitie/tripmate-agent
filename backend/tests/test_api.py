@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import re
 import threading
 from zipfile import ZipFile
 
@@ -183,6 +184,10 @@ async def test_destination_export_formats(client, session_factory):
     assert xlsx.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+    assert re.fullmatch(
+        r'attachment; filename="tripmate-places-selected-1-sort-mention-count-\d{8}T\d{6}Z\.xlsx"',
+        xlsx.headers["content-disposition"],
+    )
     with ZipFile(BytesIO(xlsx.content)) as archive:
         worksheet = archive.read("xl/worksheets/sheet1.xml").decode()
     assert "월정리 해변" in worksheet
@@ -226,6 +231,10 @@ async def test_destination_export_caps_limit_and_serializes_in_thread(client, mo
     assert response.content == b"export"
     assert captured["limit"] == routes.EXPORT_DESTINATION_LIMIT_MAX
     assert captured["thread_id"] != main_thread_id
+    assert re.fullmatch(
+        r'attachment; filename="export-all-0-sort-mention-count-\d{8}T\d{6}Z\.txt"',
+        response.headers["content-disposition"],
+    )
 
 
 async def test_operations_endpoints_return_runs_audits_and_storage(client, session_factory):

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -262,8 +263,14 @@ async def export_destinations(
         summaries = await place_service.list_place_summaries(
             session, sort=sort, place_ids=place_ids, limit=export_limit
         )
-        body, media_type, filename = await asyncio.to_thread(
+        body, media_type, base_filename = await asyncio.to_thread(
             place_export_service.build_place_export, summaries, format
+        )
+        filename = _destination_export_filename(
+            base_filename,
+            sort=sort,
+            selected=place_ids is not None,
+            exported_count=len(summaries),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -553,3 +560,28 @@ def _parse_place_ids(raw_ids: str | None) -> list[int] | None:
 
 def _normalize_destination_export_limit(limit: int) -> int:
     return max(1, min(limit, EXPORT_DESTINATION_LIMIT_MAX))
+
+
+def _destination_export_filename(
+    base_filename: str,
+    *,
+    sort: str,
+    selected: bool,
+    exported_count: int,
+    generated_at: datetime | None = None,
+) -> str:
+    stem, _, extension = base_filename.rpartition(".")
+    stem = stem or base_filename
+    extension = extension or "bin"
+    scope = "selected" if selected else "all"
+    timestamp = (generated_at or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
+    return (
+        f"{_filename_slug(stem)}-{scope}-{exported_count}"
+        f"-sort-{_filename_slug(sort)}-{timestamp}.{_filename_slug(extension)}"
+    )
+
+
+def _filename_slug(value: str) -> str:
+    chars = [char if char.isalnum() else "-" for char in value.casefold()]
+    slug = "-".join(part for part in "".join(chars).split("-") if part)
+    return slug or "na"
