@@ -110,6 +110,107 @@ async def ensure_crawl_run_status_columns(conn) -> None:
         await conn.execute(text("ALTER TABLE crawl_runs ADD COLUMN status_log_json TEXT;"))
 
 
+async def ensure_video_place_mapping_repeatable(conn) -> None:
+    """기존 SQLite DB에 남은 영상-장소 unique 제약을 제거한다.
+
+    T-028에서 같은 영상의 같은 장소가 여러 구간에 반복 등장하는 것을 보존하도록
+    모델 제약을 제거했다. 기존 DB가 table-level UNIQUE constraint로 생성된
+    경우 SQLite는 autoindex를 직접 DROP할 수 없으므로 현재 스키마로 테이블을
+    재생성한다.
+    """
+    table_result = await conn.execute(
+        text(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'video_place_mappings';"
+        )
+    )
+    table_sql = table_result.scalar_one_or_none()
+    if not table_sql:
+        return
+
+    # 일부 개발 DB는 UniqueConstraint가 아니라 명시 index 형태로 남아 있을 수 있다.
+    await conn.execute(text("DROP INDEX IF EXISTS uq_video_place_mappings_video_place;"))
+
+    normalized_sql = " ".join(str(table_sql).split()).lower()
+    has_legacy_constraint = (
+        "uq_video_place_mappings_video_place" in normalized_sql
+        or "unique (video_id, place_id)" in normalized_sql
+        or "unique(video_id, place_id)" in normalized_sql
+    )
+    if not has_legacy_constraint:
+        return
+
+    await conn.execute(
+        text("ALTER TABLE video_place_mappings RENAME TO video_place_mappings_legacy;")
+    )
+    await conn.execute(
+        text(
+            """
+            CREATE TABLE video_place_mappings (
+                id INTEGER NOT NULL,
+                video_id VARCHAR(32) NOT NULL,
+                place_id INTEGER NOT NULL,
+                place_candidate_id INTEGER,
+                ai_summary TEXT NOT NULL,
+                speaker_note TEXT,
+                timestamp_start VARCHAR(16),
+                timestamp_end VARCHAR(16),
+                frame_asset_id INTEGER,
+                created_at DATETIME NOT NULL,
+                PRIMARY KEY (id),
+                FOREIGN KEY(video_id) REFERENCES youtube_videos (video_id),
+                FOREIGN KEY(place_id) REFERENCES travel_places (place_id),
+                FOREIGN KEY(place_candidate_id) REFERENCES extracted_place_candidates (id),
+                FOREIGN KEY(frame_asset_id) REFERENCES media_assets (id)
+            );
+            """
+        )
+    )
+    await conn.execute(
+        text(
+            """
+            INSERT INTO video_place_mappings (
+                id,
+                video_id,
+                place_id,
+                place_candidate_id,
+                ai_summary,
+                speaker_note,
+                timestamp_start,
+                timestamp_end,
+                frame_asset_id,
+                created_at
+            )
+            SELECT
+                id,
+                video_id,
+                place_id,
+                place_candidate_id,
+                ai_summary,
+                speaker_note,
+                timestamp_start,
+                timestamp_end,
+                frame_asset_id,
+                created_at
+            FROM video_place_mappings_legacy;
+            """
+        )
+    )
+    await conn.execute(text("DROP TABLE video_place_mappings_legacy;"))
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_video_place_mappings_video_id "
+            "ON video_place_mappings (video_id);"
+        )
+    )
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_video_place_mappings_place_id "
+            "ON video_place_mappings (place_id);"
+        )
+    )
+
+
 async def init_db() -> None:
     """모든 ORM 테이블을 생성한다 (없을 때만).
 
@@ -124,5 +225,6 @@ async def init_db() -> None:
         await init_spatial_metadata(conn)
         await conn.run_sync(Base.metadata.create_all)
         await ensure_crawl_run_status_columns(conn)
+        await ensure_video_place_mapping_repeatable(conn)
         # travel_places.geom Point(4326)와 R-Tree 인덱스 구성 (SpatiaLite 가용 시)
         await ensure_geometry_columns(conn)

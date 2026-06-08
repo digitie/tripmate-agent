@@ -41,9 +41,10 @@
   - 조치: `deep_research` 핸들러를 등록하거나, 핸들러가 없을 때의 동작(보류/명시적 오류)을 정의.
   - 후속 처리: T-035에서 `deep_research` 기본 handler와 `deep_research_service`를 추가해 장소 상세 조사 결과를 `travel_places.detailed_research_content`에 저장하도록 연결했다. 기본 scheduler 실행에서 `deep_research` 작업이 `done`으로 완료되는 테스트를 보강했다.
 
-- [ ] **P0-3. 기존 DB의 stale unique index — 반복 등장 저장이 IntegrityError** (`#27`, `#22`)
+- [x] **P0-3. 기존 DB의 stale unique index — 반복 등장 저장이 IntegrityError** (`#27`, `#22`, T-036에서 후속 해소)
   - 근거: 모델에서 `UniqueConstraint("video_id","place_id")`를 제거했으나 `init_db()`는 `create_all`만 호출(Alembic 부재). `create_all`은 기존 인덱스를 DROP하지 못하므로, 이미 기동된 SQLite에는 `uq_video_place_mappings_video_place`가 남아 같은 영상의 같은 장소를 두 번째 매핑할 때 IntegrityError 발생 → #27의 핵심(반복 등장 보존·`mention_count`)이 기존 환경에서 깨짐. `merge_places`가 같은 `video_id`를 재배정할 때도 동일 충돌(#22).
   - 조치: 기존 `ensure_*_columns` 패턴처럼 init 경로에 `DROP INDEX IF EXISTS uq_video_place_mappings_video_place` 추가. 테스트는 매번 새 DB라 이 드리프트를 못 잡으므로 마이그레이션 경로 테스트 보강 권장. (DO-NOT #5)
+  - 후속 처리: T-036에서 명시 unique index 제거와 table-level legacy unique constraint 테이블 재생성 경로를 `init_db()`에 추가했다. legacy table 재생성 후 같은 영상·장소 반복 매핑 insert가 가능한 테스트를 보강했다.
 
 ### 🟠 P1 — Major (데이터 정합성 / 보안 강화 / 운영 안정성)
 
