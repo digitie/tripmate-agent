@@ -52,8 +52,9 @@
   - 무기한 보존 대상 원본 동영상(수백 MB+)을 `bytes`로 통째 메모리 적재 후 업로드. 멀티파트/스트리밍 업로드 경로 필요.
   - 후속 처리: T-037에서 `store_raw_media`에 file-like streaming 경로를 추가하고, RustFS 업로드는 `upload_fileobj`로 전송하도록 보강했다. 업로드 중 SHA256과 크기를 계산해 `media_assets`에 기록하는 테스트를 추가했다.
 
-- [ ] **P1-2. `claim_next_pending` 비원자적 claim** (`#12`, #22에서 부분 해소)
+- [x] **P1-2. `claim_next_pending` 비원자적 claim** (`#12`, #22에서 부분 해소, T-038에서 후속 해소)
   - `busy_timeout=5000`은 추가됐으나 여전히 SELECT-후-mutate 구조이고 쓰기 시 `WHERE state='pending'` 가드가 없음. 단일 실행자 불변식에만 의존. 가드 있는 UPDATE로 진짜 원자적 claim 권장.
+  - 후속 처리: T-038에서 후보 id 조회 후 `UPDATE ... WHERE id=:id AND state='pending' RETURNING id`로 claim을 확정하도록 바꿨다. 파일 기반 SQLite 병렬 claim 테스트를 추가했다.
 
 - [ ] **P1-3. 스키마 드리프트 전반 — Alembic 부재** (`#22`, `#27` 공통)
   - `create_all`은 기존 SQLite에 신규 제약/`BigInteger`/non-null 컬럼을 ALTER하지 못함. 신규 DB에서만 반영됨. 경량 마이그레이션 체계(또는 명시적 init 보정 스크립트) 도입 검토. (DO-NOT #5)
