@@ -88,7 +88,8 @@
   - 후속 처리: T-048에서 heartbeat task 취소 대기 경로를 `CancelledError`만 정상 종료로 처리하도록 바꾸고, 이미 실패한 heartbeat task의 예상 밖 예외는 `logger.exception`으로 남기도록 보강했다. 회귀 테스트로 heartbeat task 예외가 job 완료를 막지 않되 로그에 남는지 검증한다.
 - [x] **P2-7. engine 모델 설정의 단일 출처 부재** (`#28`, T-049에서 후속 해소) — frontend zod enum / backend `set_setting`(키만 검증) / `.env.example`·`config.py` 기본값이 제각각.
   - 후속 처리: T-049에서 `backend/app/core/config.py`의 `GEMINI_ENGINE_OPTIONS`와 `GEMINI_ENGINE_VERSION_DEFAULT`를 코드 단일 출처로 두고, settings API가 `gemini_engine_options`와 `gemini_engine_default`를 반환하도록 확장했다. `settings_service`는 모델 값을 검증하고, frontend 설정 화면은 API 옵션으로 select를 렌더링한다. POI 후처리와 Deep Research는 DB runtime 설정의 engine 값을 실제 Gemini 호출에 전달한다.
-- [ ] **P2-8. `_names_compatible` 부분일치 관대함** (`#23`) — 짧은 이름에서 false-positive 재사용 가능.
+- [x] **P2-8. `_names_compatible` 부분일치 관대함** (`#23`, T-050에서 후속 해소) — 짧은 이름에서 false-positive 재사용 가능.
+  - 후속 처리: T-050에서 이름 정규화 후 exact match는 유지하되, 포함 관계 alias는 짧은 쪽이 4자 이상이고 긴 쪽 대비 60% 이상인 경우에만 호환되도록 좁혔다. `카페` ↔ `월정리카페`, `성산` ↔ `성산일출봉` 같은 짧은 부분명은 검수 대기로 남기고, `월정리카페` ↔ `월정리카페본점` 같은 구체적 alias는 허용한다.
 
 ### 🔵 P3 — Nit / 제안
 

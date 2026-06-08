@@ -23,6 +23,9 @@ from vworld import AsyncVworldClient
 from app.models import ExtractedPlaceCandidate, MatchStatus, TravelPlace, utcnow
 from app.services import place_service
 
+_MIN_CONTAINED_NAME_LENGTH = 4
+_MIN_CONTAINED_NAME_RATIO = 0.6
+
 
 async def geocode_query(
     query: str,
@@ -148,9 +151,19 @@ def _names_compatible(*values: str | None) -> bool:
         for right in normalized[index + 1 :]:
             if left == right:
                 return True
-            if len(left) >= 2 and len(right) >= 2 and (left in right or right in left):
+            if _is_specific_contained_name(left, right):
                 return True
     return False
+
+
+def _is_specific_contained_name(left: str, right: str) -> bool:
+    if left not in right and right not in left:
+        return False
+    shorter, longer = sorted((left, right), key=len)
+    return (
+        len(shorter) >= _MIN_CONTAINED_NAME_LENGTH
+        and len(shorter) / len(longer) >= _MIN_CONTAINED_NAME_RATIO
+    )
 
 
 def _normalize_name(value: str | None) -> str:
