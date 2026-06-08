@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 
 import pytest
 
-from app.models import RunState, utcnow
+from app.models import RunState, TravelPlace, utcnow
 from app.services import crawl_run_service
 from scheduler import worker
 
@@ -247,6 +248,59 @@ async def test_harvest_handler_runs_postprocess_after_video_ingest(monkeypatch, 
     assert result["inserted"] == 1
     assert result["postprocess"]["created_candidates"] == 1
     assert result["postprocess"]["matched_places"] == 1
+
+
+async def test_run_once_executes_deep_research_default_handler(
+    monkeypatch, session, session_factory
+):
+    captured = {}
+
+    def fake_llm(prompt):
+        captured["prompt"] = prompt
+        return json.dumps(
+            {
+                "detailed_research_content": "감천문화마을은 산복도로 풍경과 골목길 관람 동선이 핵심이다.",
+                "gemini_enriched_description": "부산의 대표적인 산복도로 문화마을.",
+                "source_notes": ["테스트용 Gemini 응답"],
+            },
+            ensure_ascii=False,
+        )
+
+    monkeypatch.setattr(worker.deep_research_service, "make_gemini_llm", lambda: fake_llm)
+    place = TravelPlace(
+        name="감천문화마을",
+        description="부산 사하구의 골목 여행지",
+        latitude=35.0975,
+        longitude=129.0106,
+    )
+    session.add(place)
+    await session.commit()
+    await session.refresh(place)
+    run = await crawl_run_service.create_run(
+        session,
+        job_type="deep_research",
+        source="web",
+        target_type="place",
+        target_id=str(place.place_id),
+        payload={"prompt": "역사와 포토존 중심", "max_sources": 5},
+    )
+
+    executed_id = await worker.run_once(
+        session_factory,
+        heartbeat_interval_seconds=999,
+    )
+
+    assert executed_id == run.id
+    assert "역사와 포토존 중심" in captured["prompt"]
+    refreshed = await _fresh_run(session_factory, run.id)
+    assert refreshed.state == RunState.DONE
+    assert refreshed.progress == 1.0
+    assert "researched" in refreshed.result_json
+    async with session_factory() as verify_session:
+        refreshed_place = await verify_session.get(TravelPlace, place.place_id)
+        assert "산복도로 풍경" in refreshed_place.detailed_research_content
+        assert refreshed_place.gemini_enriched_description == "부산의 대표적인 산복도로 문화마을."
+        assert refreshed_place.last_reviewed_at is not None
 
 
 async def test_load_payload_rejects_invalid_json(session):

@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-06-08: T-035 Deep Research scheduler handler 등록
+
+- **담당자**: Codex
+- **작업 내용**:
+  - **handler 등록**: scheduler `DEFAULT_HANDLERS`에 `deep_research`를 추가해 REST/MCP가 생성한 Deep Research 작업이 더 이상 unsupported `job_type`으로 즉시 실패하지 않도록 수정.
+  - **조사 서비스 추가**: `deep_research_service`를 추가해 장소 정보와 사용자 `prompt`, `max_sources`를 Gemini JSON Schema 요청으로 보내고, 결과를 `travel_places.detailed_research_content`, `gemini_enriched_description`, `last_reviewed_at`에 저장하도록 연결.
+  - **상태 로그 보강**: Deep Research 프롬프트 구성, Gemini 상세 조사, 결과 저장 단계를 `crawl_runs.status_log_json`에 남기도록 reporter를 연결.
+  - **PR #30 추적 갱신**: `docs/pr-review-2026-06.md`의 P0-2 항목을 T-035 후속 해소로 표시.
+  - **검증**: scheduler 기본 실행에서 `deep_research` 작업이 `done`으로 완료되고 장소 상세 조사 필드가 갱신되는 단위 테스트를 추가. 관련 scheduler/API/MCP 테스트 통과.
+- **다음 작업**:
+  - PR #30 P0-3 기존 SQLite DB의 stale unique index 제거를 T-036으로 승격해 처리한다.
+
+---
+
 ## 2026-06-08: T-034 Tailwind 색상 토큰 alpha modifier 보강
 
 - **담당자**: Codex

@@ -22,9 +22,13 @@ scheduler 단일 실행자와 서비스 계층이 import해 사용한다(ADR-13)
 
 구현 완료(T-009 대표 프레임):
     - frame_extraction  : yt-dlp 스트림 URL 확보, FFmpeg Input Seeking, RustFS 저장
+
+구현 완료(T-035 Deep Research):
+    - deep_research_service: 장소 단위 Gemini Deep Research 실행·저장
 """
 
 from app.etl import (
+    deep_research_service,
     frame_extraction,
     geocode_service,
     geocoding,
@@ -54,4 +58,5 @@ __all__ = [
     "geocoding",
     "geocode_service",
     "frame_extraction",
+    "deep_research_service",
 ]

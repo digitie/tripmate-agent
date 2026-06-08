@@ -25,11 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import get_settings
 from app.core.database import async_session_factory, init_db
+from app.etl import deep_research_service
 from app.etl.pipeline import run_harvest
 from app.etl.postprocess_service import process_harvest_videos
 from app.etl.youtube_client import YouTubeClient
 from app.models import CrawlRun
-from app.services import crawl_run_service
+from app.services import crawl_run_service, place_service
 
 JobHandler = Callable[[AsyncSession, CrawlRun], Awaitable[dict[str, Any]]]
 logger = logging.getLogger(__name__)
@@ -56,6 +57,15 @@ def _max_videos_from_payload(payload: Mapping[str, Any]) -> int:
     except (TypeError, ValueError):
         value = settings.YOUTUBE_MAX_VIDEOS_PER_RUN
     return max(1, min(value, settings.YOUTUBE_MAX_VIDEOS_PER_RUN))
+
+
+def _max_sources_from_payload(payload: Mapping[str, Any]) -> int:
+    raw = payload.get("max_sources", 8)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 8
+    return max(1, min(value, 20))
 
 
 async def harvest_handler(session: AsyncSession, run: CrawlRun) -> dict[str, Any]:
@@ -118,8 +128,42 @@ async def harvest_handler(session: AsyncSession, run: CrawlRun) -> dict[str, Any
         return {**harvest_summary, "postprocess": postprocess_summary}
 
 
+async def deep_research_handler(session: AsyncSession, run: CrawlRun) -> dict[str, Any]:
+    """장소 기준 `deep_research` 작업 handler."""
+    payload = load_payload(run)
+    if run.target_type != "place":
+        raise ValueError("deep_research 작업에는 target_type=place가 필요하다")
+    if not run.target_id:
+        raise ValueError("deep_research 작업에는 target_id(place_id)가 필요하다")
+    try:
+        place_id = int(run.target_id)
+    except ValueError as exc:
+        raise ValueError("deep_research target_id는 place_id 정수여야 한다") from exc
+
+    place = await place_service.get_place(session, place_id)
+    if place is None:
+        raise ValueError(f"place not found: {place_id}")
+
+    async def report_status(message: str, progress: float | None = None) -> None:
+        await crawl_run_service.append_status_log(
+            session,
+            run.id,
+            message,
+            progress=progress,
+        )
+
+    return await deep_research_service.research_place(
+        session,
+        place,
+        prompt=payload.get("prompt") if isinstance(payload.get("prompt"), str) else None,
+        max_sources=_max_sources_from_payload(payload),
+        status_reporter=report_status,
+    )
+
+
 DEFAULT_HANDLERS: dict[str, JobHandler] = {
     "harvest": harvest_handler,
+    "deep_research": deep_research_handler,
 }
 
 
