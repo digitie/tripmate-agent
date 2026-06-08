@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-06-08: T-036 video_place_mappings stale unique 제약 제거
+
+- **담당자**: Codex
+- **작업 내용**:
+  - **기존 DB 보정**: `init_db()`에 `ensure_video_place_mapping_repeatable`을 추가해 `video_place_mappings(video_id, place_id)` 반복 등장 unique 제약이 기존 SQLite DB에 남아 있으면 제거하도록 구성.
+  - **table-level constraint 대응**: 과거 `UniqueConstraint`로 생성된 SQLite DB는 autoindex를 직접 DROP할 수 없으므로, 현재 스키마로 `video_place_mappings` 테이블을 재생성하고 기존 데이터를 보존한 뒤 `video_id`/`place_id` 일반 index를 복원.
+  - **명시 index 대응**: 개발 DB에 명시 unique index로 남은 경우도 `DROP INDEX IF EXISTS uq_video_place_mappings_video_place`로 정리.
+  - **PR #30 추적 갱신**: `docs/pr-review-2026-06.md`의 P0-3 항목을 T-036 후속 해소로 표시.
+  - **검증**: legacy unique table을 구성한 뒤 보정 helper를 실행하고 같은 영상·장소 매핑 2건을 insert하는 회귀 테스트 추가. backend 관련 테스트 통과.
+- **다음 작업**:
+  - PR #30 P1 후속 항목을 우선순위대로 task로 승격해 처리한다.
+
+---
+
 ## 2026-06-08: T-035 Deep Research scheduler handler 등록
 
 - **담당자**: Codex
