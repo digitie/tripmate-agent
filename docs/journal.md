@@ -4,6 +4,20 @@
 
 ---
 
+## 2026-06-08: T-038 crawl_runs 원자적 claim 보강
+
+- **담당자**: Codex
+- **작업 내용**:
+  - **상태 가드 추가**: `claim_next_pending`을 후보 id 조회 후 `WHERE state='pending'` 조건이 있는 `UPDATE ... RETURNING`으로 전환해 같은 pending 작업을 두 실행자가 동시에 claim하지 못하도록 보강.
+  - **로그 유지**: claim 성공 후 기존처럼 `작업 실행자가 작업을 시작했습니다.` 상태 로그와 progress `0.05`를 남기도록 유지.
+  - **경쟁 테스트 추가**: in-memory `StaticPool` 대신 파일 기반 SQLite 엔진을 사용해 두 세션이 동시에 claim해도 하나만 `running`으로 전이되는지 검증.
+  - **PR #30 추적 갱신**: `docs/pr-review-2026-06.md`의 P1-2 항목을 T-038 후속 해소로 표시.
+  - **검증**: crawl run service와 scheduler 관련 테스트 통과.
+- **다음 작업**:
+  - PR #30 P1-3 스키마 드리프트 전반 보강을 T-039로 승격해 처리한다.
+
+---
+
 ## 2026-06-08: T-037 원본 미디어 스트리밍 업로드 경로 추가
 
 - **담당자**: Codex
