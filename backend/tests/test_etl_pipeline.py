@@ -14,7 +14,7 @@ from app.etl.youtube_client import (
     YouTubeClient,
     YouTubeQuotaExceededError,
 )
-from app.models import SearchKeyword, YoutubeVideo
+from app.models import SearchKeyword, SourceTarget, YoutubeVideo
 
 NOW = datetime(2026, 6, 5, tzinfo=timezone.utc)
 
@@ -177,6 +177,65 @@ async def test_run_harvest_idempotent_rerun(session, yt_client):
     assert len(videos) == 3
 
 
+async def test_keyword_harvest_uses_source_target_watermark(session):
+    await session.merge(
+        SourceTarget(
+            target_type="keyword",
+            source_value="제주도 맛집",
+            last_crawled_at=datetime(2026, 5, 20, tzinfo=timezone.utc),
+        )
+    )
+    await session.commit()
+
+    search_published_after: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/search"):
+            search_published_after.append(request.url.params.get("publishedAfter"))
+            return httpx.Response(200, json={"items": [{"id": {"videoId": "v-new"}}]})
+        if request.url.path.endswith("/videos"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": "v-new",
+                            "snippet": {
+                                "title": "새 제주 영상",
+                                "channelId": "UC1",
+                                "channelTitle": "여행채널",
+                                "publishedAt": "2026-06-01T00:00:00Z",
+                            },
+                            "statistics": {},
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = YouTubeClient(api_key="test-key", http_client=http)
+        summary = await pipeline.run_harvest(
+            session,
+            client,
+            seed_keyword="제주도 맛집",
+            max_videos=1,
+            now=NOW,
+        )
+
+    assert summary["discovered"] == 1
+    assert search_published_after == ["2026-05-20T00:00:00Z"]
+    target = (
+        await session.execute(
+            select(SourceTarget).where(
+                SourceTarget.target_type == "keyword",
+                SourceTarget.source_value == "제주도 맛집",
+            )
+        )
+    ).scalar_one()
+    assert pipeline._as_utc_aware(target.last_crawled_at) == NOW
+
+
 async def test_run_harvest_playlist_reuses_ingest_path(session, yt_client):
     summary = await pipeline.run_harvest(
         session,
@@ -196,6 +255,85 @@ async def test_run_harvest_playlist_reuses_ingest_path(session, yt_client):
 
     videos = (await session.execute(select(YoutubeVideo))).scalars().all()
     assert {v.video_id for v in videos} == {"v1", "v2"}
+
+
+async def test_playlist_harvest_stops_at_source_target_watermark(session):
+    await session.merge(
+        SourceTarget(
+            target_type="playlist",
+            source_value="PL_DIRECT",
+            last_crawled_at=datetime(2026, 5, 20, tzinfo=timezone.utc),
+        )
+    )
+    await session.commit()
+
+    playlist_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal playlist_calls
+        if request.url.path.endswith("/playlistItems"):
+            playlist_calls += 1
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "contentDetails": {
+                                "videoId": "v-new",
+                                "videoPublishedAt": "2026-06-01T00:00:00Z",
+                            }
+                        },
+                        {
+                            "contentDetails": {
+                                "videoId": "v-old",
+                                "videoPublishedAt": "2026-05-20T00:00:00Z",
+                            }
+                        },
+                    ],
+                    "nextPageToken": "SHOULD_NOT_FETCH",
+                },
+            )
+        if request.url.path.endswith("/videos"):
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": "v-new",
+                            "snippet": {
+                                "title": "새 재생목록 영상",
+                                "channelId": "UC1",
+                                "channelTitle": "여행채널",
+                                "publishedAt": "2026-06-01T00:00:00Z",
+                            },
+                            "statistics": {},
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = YouTubeClient(api_key="test-key", http_client=http)
+        summary = await pipeline.run_harvest(
+            session,
+            client,
+            playlist_id="PL_DIRECT",
+            max_videos=10,
+            now=NOW,
+        )
+
+    assert summary["discovered"] == 1
+    assert playlist_calls == 1
+    target = (
+        await session.execute(
+            select(SourceTarget).where(
+                SourceTarget.target_type == "playlist",
+                SourceTarget.source_value == "PL_DIRECT",
+            )
+        )
+    ).scalar_one()
+    assert pipeline._as_utc_aware(target.last_crawled_at) == NOW
 
 
 async def test_run_harvest_channel_uses_uploads_playlist(session, yt_client):

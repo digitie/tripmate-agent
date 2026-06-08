@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import SearchKeyword, YoutubeVideo
+from app.models import SearchKeyword, SourceTarget, YoutubeVideo
 
 
 def parse_published_at(value: str | None) -> datetime | None:
@@ -75,6 +75,42 @@ async def get_channel_watermark(
     )
     result = await session.execute(stmt)
     return result.scalar()
+
+
+async def get_source_target_watermark(
+    session: AsyncSession, *, target_type: str, source_value: str
+) -> datetime | None:
+    """수집 대상의 마지막 성공 크롤 시각을 반환한다."""
+    stmt = select(SourceTarget.last_crawled_at).where(
+        SourceTarget.target_type == target_type,
+        SourceTarget.source_value == source_value,
+    )
+    result = await session.execute(stmt)
+    return result.scalar()
+
+
+async def mark_source_target_crawled(
+    session: AsyncSession,
+    *,
+    target_type: str,
+    source_value: str,
+    crawled_at: datetime,
+) -> SourceTarget:
+    """수집 대상의 마지막 성공 크롤 시각을 갱신한다."""
+    stmt = select(SourceTarget).where(
+        SourceTarget.target_type == target_type,
+        SourceTarget.source_value == source_value,
+    )
+    result = await session.execute(stmt)
+    target = result.scalar_one_or_none()
+    if target is None:
+        target = SourceTarget(target_type=target_type, source_value=source_value)
+        session.add(target)
+
+    target.last_crawled_at = crawled_at
+    await session.commit()
+    await session.refresh(target)
+    return target
 
 
 async def upsert_video(

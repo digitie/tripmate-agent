@@ -138,6 +138,8 @@ MCP는 에이전트용 UX다. REST API의 세분 CRUD를 그대로 노출하지 
 
 소형 프로젝트에서는 일일 10,000 유닛 한도에 도달할 가능성이 낮다. 따라서 `scrapetube`류 비공식 검색 크롤러는 기본 설계에서 제외한다. 검색 결과의 최신성, 키워드 유사도, 업로드일, 조회수 대비 참여도는 애플리케이션 레벨에서 정규화해 우선순위 큐에 적재한다.
 
+증분 수집은 대상 종류별 watermark를 사용한다. 키워드는 `source_targets.last_crawled_at`을 `search.list`의 `publishedAfter`로 전달하고, 재생목록은 `playlistItems.list` 결과의 영상 공개 시각이 해당 watermark 이하가 되는 지점에서 pagination을 중단한다. 채널은 업로드 재생목록에서 DB의 기존 최신 `youtube_videos.published_at` 이하 항목을 만나면 중단한다. 수집이 성공하면 `source_targets.last_crawled_at`을 현재 실행 시각으로 갱신한다.
+
 ### 4.3 자막·전사 폴백
 
 타인 영상 자막은 공식 captions API로 받을 수 없으므로 비공식 의존을 이 구간에만 허용한다.
@@ -250,7 +252,7 @@ API 서버, MCP 서버, 정기 스케줄러는 모두 같은 작업 테이블(`c
 - `source_value` (String)
 - `display_name` (String, Nullable)
 - `is_active` (Boolean)
-- `last_crawled_at` (DateTime, Nullable)
+- `last_crawled_at` (DateTime, Nullable) - 키워드·재생목록 증분 수집 기준 시각
 - `next_crawl_at` (DateTime, Nullable)
 - `created_at` (DateTime)
 - Unique: `target_type`, `source_value`
