@@ -25,13 +25,15 @@
 
 ### 기본 실행 (단일 호스트 Docker Compose, Linux/WSL2 — ADR-18/ADR-23)
 ```bash
-docker compose up --build       # backend 8000, frontend 3000, rustfs, mcp
-# 또는 thin 런처
+docker compose up -d --build    # host API 9041 / Web 9042 (컨테이너 내부 8000/3000), rustfs, mcp
+# 또는 thin 런처 (고정 포트 회수 후 기동)
 bash scripts/start-live.sh
 # smoke 검증 (기동 → health 확인 → RustFS 검증 → 정리)
 bash scripts/verify-docker-compose.sh
 ```
-REST API는 `/api/v1` 프리픽스 아래에 있고(`/health`·`/`만 버전 없음) `X-API-Key` 인증을 받는다. 로컬(`APP_ENV=local/test/e2e`)은 무인증 우회, 외부 노출 배포는 `APP_ENV=production`+`API_KEYS`로 인증을 강제한다(ADR-24).
+기동 후 API는 `http://localhost:9041`, Web은 `http://localhost:9042`로 접속한다(host 고정 포트 → 컨테이너 내부 API `8000`·Web `3000`). `scripts/start-live.sh`는 `docker compose up` 이전에 `scripts/stop-fixed-ports.sh`로 고정 포트 `9041`/`9042`를 점유한 리스너(Linux/Docker/WSL/Windows)를 회수해 재시작을 보장한다(포트 회수 패턴은 `python-krtour-map`에서 차용).
+
+REST API는 `/api/v1` 프리픽스 아래에 있고(`/health`·`/`만 버전 없음) `X-API-Key` 인증을 받는다. 브라우저는 same-origin Next BFF(`/api/v1/*` Route Handler)로 호출하고 BFF가 서버 사이드에서 백엔드로 프록시하며 서버 전용 `BACKEND_API_KEY`로 `X-API-Key`를 주입한다(키는 브라우저에 노출되지 않음). 직접/외부 호출자는 `X-API-Key`를 직접 보낸다. 로컬(`APP_ENV=local/test/e2e`)은 무인증 우회, 외부 노출 배포는 `APP_ENV=production`+`API_KEYS`로 인증을 강제한다(ADR-24).
 
 ### 백엔드 단독 실행 (컨테이너 밖 로컬 개발, Linux/WSL)
 ```bash

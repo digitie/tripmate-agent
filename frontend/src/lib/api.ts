@@ -1,10 +1,11 @@
-// 백엔드 API 베이스 URL. `.env`의 NEXT_PUBLIC_API_BASE_URL로 주입한다.
-export const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
-).replace(/\/$/, "");
-
-// 비로컬 백엔드 인증용 API 키. 비어 있으면 헤더를 붙이지 않는다(로컬/E2E 무인증).
-export const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
+// 브라우저는 항상 same-origin Next BFF(`/api/v1/*` Route Handler)로 요청한다.
+// Route Handler가 서버 사이드에서 백엔드로 프록시하며 인증 코드(`X-API-Key`)를
+// 주입하므로 브라우저 번들에는 API 키를 노출하지 않는다(ADR-24).
+// 기본값은 빈 문자열(상대 경로)이다.
+export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(
+  /\/$/,
+  "",
+);
 
 // VWorld 지도 서비스 키 (브라우저 직접 로드).
 export const VWORLD_SERVICE_KEY =
@@ -160,11 +161,11 @@ function harvestPayload(input: StartHarvestInput) {
   };
 }
 
-// 백엔드 요청 공통 헤더. API_KEY가 설정된 경우에만 X-API-Key를 주입한다.
+// 백엔드 요청 공통 헤더. 인증 코드(`X-API-Key`)는 브라우저가 아니라 same-origin BFF
+// Route Handler가 서버 사이드에서 주입한다(ADR-24). 브라우저는 키를 보유하지 않는다.
 function buildHeaders(extra: HeadersInit = {}): HeadersInit {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
   };
   return { ...headers, ...(extra as Record<string, string>) };
 }
